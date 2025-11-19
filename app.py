@@ -8,7 +8,7 @@ from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import requests
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, TRCK, APIC, TXXX, UFID
+from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TDRC, TRCK, APIC, TXXX, UFID
 import yt_dlp
 import schedule
 from bing_image_downloader import downloader
@@ -105,52 +105,6 @@ def get_missing_albums():
         traceback.print_exc()
         return []
 
-def get_missing_albums_fallback():
-    try:
-        print("DEBUG: Starting fallback method...")
-        albums = lidarr_request('album')
-        
-        if isinstance(albums, dict) and 'error' in albums:
-            print(f"DEBUG: Error getting albums: {albums['error']}")
-            return []
-        
-        print(f"DEBUG: Got {len(albums)} total albums")
-        
-        missing = []
-        checked = 0
-        
-        for album in albums:
-            if not album.get('monitored'):
-                continue
-            
-            checked += 1
-            statistics = album.get('statistics', {})
-            percent = statistics.get('percentOfTracks', 100)
-            
-            if checked <= 5:
-                print(f"DEBUG: Album '{album.get('title')}' - monitored: True, percentOfTracks: {percent}")
-            
-            if percent < 100:
-                album_id = album.get('id')
-                album_detail = lidarr_request(f'album/{album_id}')
-                
-                if isinstance(album_detail, dict) and 'error' not in album_detail:
-                    tracks = album_detail.get('tracks', [])
-                    missing_count = sum(1 for t in tracks if not t.get('hasFile'))
-                    
-                    if missing_count > 0:
-                        album_detail['missingTrackCount'] = missing_count
-                        missing.append(album_detail)
-                        if len(missing) <= 3:
-                            print(f"DEBUG: Added missing album: {album_detail.get('title')} ({missing_count} tracks missing)")
-        
-        print(f"DEBUG: Checked {checked} monitored albums, found {len(missing)} with missing tracks")
-        return missing
-        
-    except Exception as e:
-        print(f"DEBUG: Exception in fallback: {e}")
-        return []
-
 def get_itunes_preview(artist, track):
     try:
         url = 'https://itunes.apple.com/search'
@@ -204,7 +158,10 @@ def update_progress(d):
 def tag_mp3(file_path, track_info, album_info, cover_data):
     try:
         audio = MP3(file_path, ID3=ID3)
-        audio.delete()
+        try:
+            audio.delete()
+        except:
+            pass
         audio.save()
         
         audio = MP3(file_path, ID3=ID3)
@@ -212,6 +169,7 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
         
         audio.tags.add(TIT2(encoding=3, text=track_info['title']))
         audio.tags.add(TPE1(encoding=3, text=album_info['artist']['artistName']))
+        audio.tags.add(TPE2(encoding=3, text=album_info['artist']['artistName']))
         audio.tags.add(TALB(encoding=3, text=album_info['title']))
         audio.tags.add(TDRC(encoding=3, text=str(album_info.get('releaseDate', '')[:4])))
         audio.tags.add(TRCK(encoding=3, text=f"{track_info['trackNumber']}/{album_info['trackCount']}"))
@@ -238,6 +196,7 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
         audio.save(v2_version=4)
         return True
     except Exception as e:
+        print(f"DEBUG: Tagging error: {e}")
         return False
 
 def process_album_download(album_id):
@@ -277,7 +236,9 @@ def process_album_download(album_id):
         root_path = root_folders[0]['path']
         sanitized_artist = "".join(c for c in artist_name if c.isalnum() or c in (' ', '-', '_')).strip()
         sanitized_album = "".join(c for c in album_title if c.isalnum() or c in (' ', '-', '_')).strip()
-        album_path = os.path.join(root_path, sanitized_artist, sanitized_album)
+        
+        artist_path = os.path.join(root_path, sanitized_artist)
+        album_path = os.path.join(artist_path, sanitized_album)
         os.makedirs(album_path, exist_ok=True)
         
         print(f"DEBUG: Download path: {album_path}")
@@ -330,8 +291,8 @@ def process_album_download(album_id):
                 print(f"DEBUG: Error downloading track: {e}")
                 continue
         
-        print(f"DEBUG: Triggering Lidarr rescan")
-        lidarr_request('command', method='POST', data={'name': 'RescanFolders', 'folders': [album_path]})
+        print(f"DEBUG: Triggering Lidarr rescan on artist folder: {artist_path}")
+        lidarr_request('command', method='POST', data={'name': 'RescanFolders', 'folders': [artist_path]})
         
         send_telegram(f"✅ Album downloaded: {artist_name} - {album_title}")
         
