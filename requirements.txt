@@ -1,4 +1,7 @@
-flask
+Flask
 requests
 yt-dlp
 mutagen
+schedule
+bing-image-downloader
+gunicorn
