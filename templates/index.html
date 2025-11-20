@@ -8,8 +8,16 @@
     <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1384/1384060.png">
     <style>
         :root {
-            --bg: #09090b; --surface: #18181b; --surface-hover: #27272a; --text: #fafafa; --text-dim: #a1a1aa;
-            --primary: #10b981; --primary-hover: #059669; --danger: #ef4444; --border: #27272a; --radius: 12px;
+            --bg: #09090b;
+            --surface: #18181b;
+            --surface-hover: #27272a;
+            --text: #fafafa;
+            --text-dim: #a1a1aa;
+            --primary: #10b981;
+            --primary-hover: #059669;
+            --danger: #ef4444;
+            --border: #27272a;
+            --radius: 12px;
         }
         body.light {
             --bg: #f4f4f5; --surface: #ffffff; --surface-hover: #f4f4f5; --text: #18181b; --text-dim: #71717a; --border: #e4e4e7;
@@ -34,10 +42,9 @@
         .icon-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
         .icon-btn:hover { background: var(--surface-hover); border-color: var(--primary); }
         
-        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; flex: 1; width: 100%; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; width: 100%; flex: 1; }
         .config-panel { background: var(--surface); padding: 1.5rem; border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 2rem; }
         
-        /* Filters & Search */
         .controls-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem; }
         .filter-group { display: flex; gap: 0.5rem; flex: 1; flex-wrap: wrap; min-width: 300px; }
         .search-box { position: relative; flex: 1; }
@@ -56,18 +63,24 @@
         select.filter-select:focus { border-color: var(--primary); }
 
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; }
-        .card { background: var(--surface); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); position: relative; display: flex; flex-direction: column; }
-        .card:hover { transform: translateY(-4px); }
+        .card { 
+            background: var(--surface); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); position: relative; display: flex; flex-direction: column; 
+            animation: fadeIn 0.5s ease forwards; opacity: 0;
+        }
+        @keyframes fadeIn { to { opacity: 1; } }
+        .card:hover { transform: translateY(-4px); transition: transform 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        
         .card-img-container { position: relative; padding-top: 100%; background: #222; }
         .card-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
         .card-content { padding: 1.25rem; flex: 1; display: flex; flex-direction: column; }
         .card-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .card-artist { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 1rem; }
         .card-actions { margin-top: auto; display: flex; gap: 0.75rem; }
-        .btn { flex: 1; padding: 0.6rem; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; font-size: 0.9rem; }
+        .btn { flex: 1; padding: 0.6rem; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; font-size: 0.9rem; transition: 0.2s; }
+        .btn:active { transform: scale(0.98); }
         .btn-primary { background: var(--primary); color: white; }
         .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
-        .download-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); display: none; flex-direction: column; justify-content: center; align-items: center; padding: 2rem; z-index: 10; }
+        .download-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); display: none; flex-direction: column; justify-content: center; align-items: center; padding: 2rem; z-index: 10; backdrop-filter: blur(4px); }
         .download-overlay.active { display: flex; }
         
         footer { text-align: center; padding: 2rem; color: var(--text-dim); font-size: 0.9rem; border-top: 1px solid var(--border); margin-top: auto; }
@@ -178,11 +191,12 @@
                 return;
             }
 
-            albums.forEach(album => {
+            albums.forEach((album, index) => {
                 const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
                 const year = album.releaseDate?.substring(0,4) || '';
                 const div = document.createElement('div');
                 div.className = 'card';
+                div.style.animationDelay = `${index * 0.05}s`;
                 div.innerHTML = `
                     <div class="card-img-container"><img src="${cover}" class="card-img"></div>
                     <div class="card-content">
@@ -190,11 +204,11 @@
                         <div class="card-artist">${album.artist.artistName}</div>
                         <div style="font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem">${year} • ${album.missingTrackCount} Missing</div>
                         <div class="card-actions">
-                            <button class="btn btn-primary" onclick="startDownload(${album.id})">Download Missing</button>
+                            <button class="btn btn-primary" onclick="startDownload(${album.id})">Download</button>
                         </div>
                     </div>
                     <div class="download-overlay" id="overlay-${album.id}">
-                        <div style="margin-bottom:0.5rem" id="status-${album.id}">Downloading...</div>
+                        <div style="margin-bottom:0.5rem; font-weight:bold;" id="status-${album.id}">Starting...</div>
                         <div style="font-size:0.9rem; color:#ccc" id="substatus-${album.id}">0%</div>
                     </div>
                 `;
@@ -240,8 +254,10 @@
                 ov.classList.add('active');
                 if(data.progress.percent) {
                     document.getElementById(`substatus-${data.album_id}`).innerText = `${data.progress.percent} (${data.progress.speed})`;
+                    document.getElementById(`status-${data.album_id}`).innerText = "Downloading";
                 } else if (data.progress.current) {
                     document.getElementById(`substatus-${data.album_id}`).innerText = `Track ${data.progress.current}/${data.progress.total}`;
+                    document.getElementById(`status-${data.album_id}`).innerText = "Processing";
                 }
             }
         }
