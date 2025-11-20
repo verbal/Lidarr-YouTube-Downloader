@@ -69,6 +69,10 @@
                 <button class="btn" id="toggleBtn" onclick="toggleScheduler()" style="background:#444">Loading...</button>
             </div>
             <div class="input-group">
+                <label>Auto Download Missing Albums</label>
+                <button class="btn" id="autoDlBtn" onclick="toggleAutoDl()" style="background:#444">Loading...</button>
+            </div>
+            <div class="input-group">
                 <label>Check Interval (Minutes)</label>
                 <input type="number" id="interval" value="60">
             </div>
@@ -109,19 +113,32 @@
             document.getElementById('interval').value = conf.scheduler_interval;
             document.getElementById('botToken').value = conf.telegram_bot_token;
             document.getElementById('chatId').value = conf.telegram_chat_id;
-            updateBtn(conf.scheduler_enabled);
+            updateSchedulerBtn(conf.scheduler_enabled);
+            updateAutoDlBtn(conf.scheduler_auto_download);
         }
         
-        function updateBtn(enabled) {
+        function updateSchedulerBtn(enabled) {
             const btn = document.getElementById('toggleBtn');
             btn.innerText = enabled ? 'Scheduler Active (Click to Disable)' : 'Enable Scheduler';
+            btn.style.background = enabled ? 'var(--primary)' : '#3f3f46';
+        }
+
+        function updateAutoDlBtn(enabled) {
+            const btn = document.getElementById('autoDlBtn');
+            btn.innerText = enabled ? 'Auto Download ON' : 'Auto Download OFF';
             btn.style.background = enabled ? 'var(--primary)' : '#3f3f46';
         }
 
         async function toggleScheduler() {
             const res = await fetch('/api/scheduler/toggle', { method: 'POST' });
             const data = await res.json();
-            updateBtn(data.enabled);
+            updateSchedulerBtn(data.enabled);
+        }
+
+        async function toggleAutoDl() {
+            const res = await fetch('/api/scheduler/autodownload/toggle', { method: 'POST' });
+            const data = await res.json();
+            updateAutoDlBtn(data.enabled);
         }
 
         async function saveConfig() {
