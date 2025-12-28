@@ -42,11 +42,11 @@ A modern, feature-rich web application that automatically downloads missing albu
 ## 📸 Screenshots
 
 <p align="center">
-  <a href="https://i.imgur.com/MC8X1qP.png">
-    <img src="https://i.imgur.com/MC8X1qP.png" width="45%">
+  <a href="https://github.com/user-attachments/assets/3feaa81a-0f2a-4bb4-8130-f721388118b6">
+    <img src="https://github.com/user-attachments/assets/3feaa81a-0f2a-4bb4-8130-f721388118b6" width="45%">
   </a>
-  <a href="https://i.imgur.com/mGs2pqV.png">
-    <img src="https://i.imgur.com/mGs2pqV.png" width="45%">
+  <a href="https://github.com/user-attachments/assets/279647b8-8dca-4273-aaaf-d7dfce12b268">
+    <img src="https://github.com/user-attachments/assets/279647b8-8dca-4273-aaaf-d7dfce12b268" width="45%">
   </a>
 </p>
 
