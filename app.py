@@ -14,9 +14,23 @@ import schedule
 
 app = Flask(__name__)
 
+VERSION = "1.0.0"
+
 CONFIG_FILE = '/config/config.json'
 DOWNLOAD_DIR = '/spotdl'
-download_process = {'active': False, 'stop': False, 'progress': {}, 'album_id': None}
+download_process = {
+    'active': False, 
+    'stop': False, 
+    'progress': {}, 
+    'album_id': None,
+    'album_title': '',
+    'artist_name': '',
+    'current_track_title': ''
+}
+
+download_queue = []
+download_history = []
+queue_lock = threading.Lock()
 
 def load_config():
     config = {
@@ -193,10 +207,10 @@ def download_track_youtube(query, output_path, track_title_original):
 
 def update_progress(d):
     if d['status'] == 'downloading':
-        download_process['progress'] = {
+        download_process['progress'].update({
             'percent': d.get('_percent_str', '0%').strip(),
             'speed': d.get('_speed_str', 'N/A').strip()
-        }
+        })
 
 def set_permissions(path):
     try:
@@ -331,8 +345,11 @@ def process_album_download(album_id, force=False):
     if download_process['active']: return {'error': 'Busy'}
     download_process['active'] = True
     download_process['stop'] = False
-    download_process['progress'] = {}
+    download_process['progress'] = {'current': 0, 'total': 0, 'percent': '0%', 'speed': 'N/A', 'overall_percent': 0}
     download_process['album_id'] = album_id
+    download_process['album_title'] = ''
+    download_process['artist_name'] = ''
+    download_process['current_track_title'] = ''
     
     try:
         album = lidarr_request(f'album/{album_id}')
@@ -357,6 +374,10 @@ def process_album_download(album_id, force=False):
         artist_mbid = album['artist'].get('foreignArtistId', '')
         album_title = album['title']
         release_year = str(album.get('releaseDate', ''))[:4]
+        
+        # Update download process with album info
+        download_process['album_title'] = album_title
+        download_process['artist_name'] = artist_name
 
         release_id = get_valid_release_id(album)
         if release_id == 0:
@@ -406,6 +427,12 @@ def process_album_download(album_id, force=False):
             except:
                 track_num = idx
             
+            # Update current track info
+            download_process['current_track_title'] = track_title
+            download_process['progress']['current'] = idx
+            download_process['progress']['total'] = len(tracks_to_download)
+            download_process['progress']['overall_percent'] = int((idx / len(tracks_to_download)) * 100)
+            
             query = f"{artist_name} {track_title} official audio"
             sanitized_track = sanitize_filename(track_title)
             
@@ -421,7 +448,10 @@ def process_album_download(album_id, force=False):
                 create_xml_metadata(album_path, artist_name, album_title, track_num, track_title, album_mbid, artist_mbid)
                 shutil.move(actual_file, final_file)
             
-            download_process['progress'] = {'current': idx, 'total': len(tracks_to_download)}
+            # Update progress after track completion
+            download_process['progress']['current'] = idx
+            download_process['progress']['total'] = len(tracks_to_download)
+            download_process['progress']['overall_percent'] = int((idx / len(tracks_to_download)) * 100)
 
         set_permissions(artist_path)
         
@@ -435,9 +465,20 @@ def process_album_download(album_id, force=False):
     except Exception as e:
         return {'error': str(e)}
     finally:
+        with queue_lock:
+            download_history.append({
+                'album_id': download_process.get('album_id'),
+                'album_title': download_process.get('album_title', ''),
+                'artist_name': download_process.get('artist_name', ''),
+                'success': 'error' not in locals() or not locals().get('e'),
+                'timestamp': time.time()
+            })
         download_process['active'] = False
         download_process['progress'] = {}
         download_process['album_id'] = None
+        download_process['album_title'] = ''
+        download_process['artist_name'] = ''
+        download_process['current_track_title'] = ''
 
 @app.route('/api/test-connection')
 def api_test_connection():
@@ -450,8 +491,11 @@ def api_test_connection():
 @app.route('/')
 def index(): return render_template('index.html')
 
-@app.route('/scheduler')
-def scheduler(): return render_template('scheduler.html')
+@app.route('/downloads')
+def downloads(): return render_template('downloads.html')
+
+@app.route('/settings')
+def settings(): return render_template('settings.html')
 
 @app.route('/favicon.ico')
 def favicon():
@@ -479,8 +523,12 @@ def api_album_details(album_id):
 
 @app.route('/api/download/<int:album_id>', methods=['POST'])
 def api_download(album_id):
-    threading.Thread(target=process_album_download, args=(album_id, False)).start()
-    return jsonify({'success': True})
+    with queue_lock:
+        if album_id not in download_queue and download_process.get('album_id') != album_id:
+            download_queue.append(album_id)
+            return jsonify({'success': True, 'queued': True})
+        else:
+            return jsonify({'success': False, 'message': 'Already in queue or downloading'})
 
 @app.route('/api/download/stop', methods=['POST'])
 def api_download_stop():
@@ -489,6 +537,49 @@ def api_download_stop():
 
 @app.route('/api/download/status')
 def api_download_status(): return jsonify(download_process)
+
+@app.route('/api/version')
+def api_version(): return jsonify({'version': VERSION})
+
+@app.route('/api/download/queue', methods=['GET'])
+def api_get_queue():
+    with queue_lock:
+        queue_with_details = []
+        for album_id in download_queue:
+            album = lidarr_request(f'album/{album_id}')
+            if 'error' not in album:
+                queue_with_details.append({
+                    'id': album_id,
+                    'title': album.get('title', ''),
+                    'artist': album.get('artist', {}).get('artistName', ''),
+                    'cover': next((img['remoteUrl'] for img in album.get('images', []) if img['coverType'] == 'cover'), '')
+                })
+        return jsonify(queue_with_details)
+
+@app.route('/api/download/queue', methods=['POST'])
+def api_add_to_queue():
+    album_id = request.json.get('album_id')
+    with queue_lock:
+        if album_id not in download_queue and download_process.get('album_id') != album_id:
+            download_queue.append(album_id)
+    return jsonify({'success': True, 'queue_length': len(download_queue)})
+
+@app.route('/api/download/queue/<int:album_id>', methods=['DELETE'])
+def api_remove_from_queue(album_id):
+    with queue_lock:
+        if album_id in download_queue:
+            download_queue.remove(album_id)
+    return jsonify({'success': True})
+
+@app.route('/api/download/queue/clear', methods=['POST'])
+def api_clear_queue():
+    with queue_lock:
+        download_queue.clear()
+    return jsonify({'success': True})
+
+@app.route('/api/download/history')
+def api_download_history():
+    return jsonify(download_history[-20:])
 
 @app.route('/api/scheduler/toggle', methods=['POST'])
 def api_scheduler_toggle():
@@ -509,15 +600,29 @@ def scheduled_check():
     if download_process['active']: return
     config = load_config()
     albums = get_missing_albums()
-    if albums:
+    
+    if not albums: return
+    
+    with queue_lock:
+        recent_history_ids = [h['album_id'] for h in download_history[-50:] if h.get('success')]
+        current_download_id = download_process.get('album_id')
+        
+        new_albums = [
+            album for album in albums 
+            if album['id'] not in download_queue 
+            and album['id'] not in recent_history_ids
+            and album['id'] != current_download_id
+            and album.get('missingTrackCount', 0) > 0
+        ]
+    
+    if new_albums:
         if config.get('scheduler_auto_download', True):
-            send_telegram(f"🚀 Scheduler: Downloading {len(albums)} missing albums...")
-            for album in albums:
-                if download_process.get('stop'): break
-                process_album_download(album['id'], False)
-                time.sleep(5)
+            send_telegram(f"🚀 Scheduler: Adding {len(new_albums)} new missing albums to queue...")
+            with queue_lock:
+                for album in new_albums:
+                    download_queue.append(album['id'])
         else:
-            send_telegram(f"🔍 Scheduler: Found {len(albums)} missing albums (Auto-DL Disabled)")
+            send_telegram(f"🔍 Scheduler: Found {len(new_albums)} missing albums (Auto-DL Disabled)")
 
 def run_scheduler():
     while True: schedule.run_pending(); time.sleep(10)
@@ -529,7 +634,20 @@ def setup_scheduler():
         interval = int(config.get('scheduler_interval', 60))
         schedule.every(interval).minutes.do(scheduled_check)
 
+def process_download_queue():
+    while True:
+        try:
+            if not download_process['active'] and download_queue:
+                with queue_lock:
+                    if download_queue:
+                        next_album_id = download_queue.pop(0)
+                        threading.Thread(target=process_album_download, args=(next_album_id, False)).start()
+        except:
+            pass
+        time.sleep(2)
+
 if __name__ == '__main__':
     setup_scheduler()
     threading.Thread(target=run_scheduler, daemon=True).start()
+    threading.Thread(target=process_download_queue, daemon=True).start()
     app.run(host='0.0.0.0', port=5000, debug=False)
