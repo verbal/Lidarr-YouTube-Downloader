@@ -429,6 +429,21 @@
 
         <div class="settings-section">
             <div class="section-header">
+                <i class="fa-solid fa-file-code"></i>
+                <h2>Download Options</h2>
+            </div>
+            <div class="input-group">
+                <label>
+                    XML Metadata Files
+                    <div class="label-description">Generate XML metadata files alongside audio files (useful for Lidarr
+                        integration)</div>
+                </label>
+                <button class="toggle-btn" id="xmlMetadataBtn" onclick="toggleXmlMetadata()">Loading...</button>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
                 <i class="fa-brands fa-telegram"></i>
                 <h2>Telegram Notifications</h2>
             </div>
@@ -489,6 +504,7 @@
             document.getElementById('chatId').value = conf.telegram_chat_id;
             updateSchedulerBtn(conf.scheduler_enabled);
             updateAutoDlBtn(conf.scheduler_auto_download);
+            updateXmlMetadataBtn(conf.xml_metadata_enabled !== false);
         }
 
         function updateSchedulerBtn(enabled) {
@@ -517,6 +533,20 @@
             });
             const data = await res.json();
             updateAutoDlBtn(data.enabled);
+        }
+
+        function updateXmlMetadataBtn(enabled) {
+            const btn = document.getElementById('xmlMetadataBtn');
+            btn.innerText = enabled ? '✓ XML Metadata ON' : 'XML Metadata OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        async function toggleXmlMetadata() {
+            const res = await fetch('/api/xmlmetadata/toggle', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            updateXmlMetadataBtn(data.enabled);
         }
 
         async function saveConfig() {
