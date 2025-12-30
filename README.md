@@ -80,6 +80,7 @@ A modern, feature-rich web application that automatically downloads missing albu
 | `LIDARR_URL` | `http://192.168.1.xxx:8686` | Your Lidarr IP. **Do NOT** use `localhost` or `127.0.0.1`. |
 | `LIDARR_API_KEY` | `your_api_key_here` | Found in Lidarr Settings -> General. |
 | `DOWNLOAD_PATH` | `/DATA/Downloads` | Must match the Container Path above. |
+| `LIDARR_PATH` | `/music` | Lidarr's music library folder (optional, leave empty to use download path). |
 
 ---
 
@@ -95,24 +96,14 @@ services:
       - "5005:5000"
     volumes:
       - /DATA/Downloads:/DATA/Downloads
+      - /DATA/Media/Music:/music
     environment:
       - LIDARR_URL=http://192.168.1.XXX:8686
       - LIDARR_API_KEY=your_lidarr_api_key
       - DOWNLOAD_PATH=/DATA/Downloads
+      - LIDARR_PATH=/music
     restart: unless-stopped
 ```
-
----
-
-## ⚙️ Configuration Details
-
-| Variable | Description | Example |
-|:---|:---|:---|
-| `LIDARR_URL` | The full URL to your Lidarr instance. | `http://192.168.1.50:8686` |
-| `LIDARR_API_KEY` | Your API Key found in Lidarr (Settings -> General). | `a1b2c3d4e5...` |
-| `DOWNLOAD_PATH` | Where the MP3s will be saved inside the container. | `/DATA/Downloads` |
-
----
 
 ## 📖 Usage
 
