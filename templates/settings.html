@@ -387,9 +387,10 @@
                 <div class="logo">🎵 Lidarr YouTube Downloader</div>
             </a>
             <div class="nav-links">
-                <a href="/">Dashboard</a>
-                <a href="/downloads">Downloads</a>
-                <a href="/settings">Settings</a>
+                <a href="/"><i class="fas fa-home"></i> Home</a>
+                <a href="/downloads"><i class="fas fa-download"></i> Downloads</a>
+                <a href="/logs"><i class="fas fa-list"></i> Logs</a>
+                <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
             </div>
             <div class="controls">
                 <button class="icon-btn" onclick="toggleTheme()"><i class="fa-solid fa-moon"
@@ -461,6 +462,73 @@
                 </label>
                 <input type="text" id="chatId" placeholder="123456789">
             </div>
+            <div class="input-group">
+                <label>
+                    Notification Filters
+                    <div class="label-description">Choose which log types to receive via Telegram</div>
+                </label>
+                <div
+                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-top: 0.5rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="log_download_started" value="download_started"
+                            style="width: auto; cursor: pointer;">
+                        <span>🎵 Download Started</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="log_download_success" value="download_success"
+                            style="width: auto; cursor: pointer;">
+                        <span>✅ Download Success</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="log_partial_success" value="partial_success"
+                            style="width: auto; cursor: pointer;">
+                        <span>⚠️ Partial Success</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="log_import_success" value="import_success"
+                            style="width: auto; cursor: pointer;">
+                        <span>✅ Import Success</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="log_import_failed" value="import_failed"
+                            style="width: auto; cursor: pointer;">
+                        <span>❌ Import Failed</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="log_album_error" value="album_error"
+                            style="width: auto; cursor: pointer;">
+                        <span>❌ Album Error</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
+                <i class="fa-solid fa-folder-open"></i>
+                <h2>Environment Variables</h2>
+            </div>
+            <div
+                style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <p style="margin: 0; color: var(--text); font-size: 0.9rem;">
+                    ⚠️ <strong>Note:</strong> Changes to these paths require an application restart to take full effect.
+                </p>
+            </div>
+            <div class="input-group">
+                <label>
+                    Download Path
+                    <div class="label-description">Temporary folder for downloads (e.g., /downloads)</div>
+                </label>
+                <input type="text" id="downloadPath" placeholder="/downloads">
+            </div>
+            <div class="input-group">
+                <label>
+                    Lidarr Music Path
+                    <div class="label-description">Lidarr's music library folder - leave empty to use download path
+                        (e.g., /music)</div>
+                </label>
+                <input type="text" id="lidarrPath" placeholder="/music">
+            </div>
         </div>
 
         <div class="settings-section">
@@ -502,6 +570,20 @@
             document.getElementById('interval').value = conf.scheduler_interval;
             document.getElementById('botToken').value = conf.telegram_bot_token;
             document.getElementById('chatId').value = conf.telegram_chat_id;
+
+            // Load telegram log type filters
+            const logTypes = conf.telegram_log_types || [];
+            ['download_started', 'download_success', 'partial_success', 'import_success', 'import_failed', 'album_error'].forEach(type => {
+                const checkbox = document.getElementById(`log_${type}`);
+                if (checkbox) {
+                    checkbox.checked = logTypes.includes(type);
+                }
+            });
+
+            // Load environment variables
+            document.getElementById('downloadPath').value = conf.download_path || '';
+            document.getElementById('lidarrPath').value = conf.lidarr_path || '';
+
             updateSchedulerBtn(conf.scheduler_enabled);
             updateAutoDlBtn(conf.scheduler_auto_download);
             updateXmlMetadataBtn(conf.xml_metadata_enabled !== false);
@@ -550,6 +632,15 @@
         }
 
         async function saveConfig() {
+            // Collect selected log types
+            const selectedLogTypes = [];
+            ['download_started', 'download_success', 'partial_success', 'import_success', 'import_failed', 'album_error'].forEach(type => {
+                const checkbox = document.getElementById(`log_${type}`);
+                if (checkbox && checkbox.checked) {
+                    selectedLogTypes.push(type);
+                }
+            });
+
             await fetch('/api/config', {
                 method: 'POST',
                 headers: {
@@ -559,10 +650,13 @@
                     scheduler_interval: document.getElementById('interval').value,
                     telegram_bot_token: document.getElementById('botToken').value,
                     telegram_chat_id: document.getElementById('chatId').value,
-                    telegram_enabled: !!document.getElementById('botToken').value
+                    telegram_enabled: !!document.getElementById('botToken').value,
+                    telegram_log_types: selectedLogTypes,
+                    download_path: document.getElementById('downloadPath').value,
+                    lidarr_path: document.getElementById('lidarrPath').value
                 })
             });
-            alert('✓ Configuration Saved!');
+            alert('✓ Configuration Saved!\n\n⚠️ Note: Changes to Download Path and Lidarr Path require an application restart.');
         }
 
         async function loadVersion() {
