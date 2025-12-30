@@ -4,6 +4,7 @@ import time
 import threading
 import shutil
 import re
+import logging
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import requests
@@ -12,12 +13,22 @@ from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TDRC, TRCK, APIC, TXXX, UFI
 import yt_dlp
 import schedule
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+
 app = Flask(__name__)
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 CONFIG_FILE = '/config/config.json'
-DOWNLOAD_DIR = '/spotdl'
+DOWNLOAD_DIR = os.getenv('DOWNLOAD_PATH', '')
 download_process = {
     'active': False, 
     'stop': False, 
@@ -41,7 +52,8 @@ def load_config():
         'scheduler_interval': int(os.getenv('SCHEDULER_INTERVAL', '60')),
         'telegram_enabled': os.getenv('TELEGRAM_ENABLED', 'false').lower() == 'true',
         'telegram_bot_token': os.getenv('TELEGRAM_BOT_TOKEN', ''),
-        'telegram_chat_id': os.getenv('TELEGRAM_CHAT_ID', '')
+        'telegram_chat_id': os.getenv('TELEGRAM_CHAT_ID', ''),
+        'xml_metadata_enabled': os.getenv('XML_METADATA_ENABLED', 'true').lower() == 'true'
     }
     if os.path.exists(CONFIG_FILE):
         try:
@@ -353,7 +365,11 @@ def process_album_download(album_id, force=False):
     
     try:
         album = lidarr_request(f'album/{album_id}')
-        if 'error' in album: return album
+        if 'error' in album:
+            logger.error(f"❌ Error fetching album {album_id}: {album['error']}")
+            return album
+        
+        logger.info(f"🎵 Starting download for album: {album.get('title', 'Unknown')} - {album.get('artist', {}).get('artistName', 'Unknown')}")
         
         tracks = album.get('tracks', [])
         if not tracks:
@@ -418,8 +434,12 @@ def process_album_download(album_id, force=False):
             force_lidarr_import(album_path, artist_id, album_id, release_id)
             return {'success': True, 'message': 'Skipped'}
 
+        logger.info(f"📦 Total tracks to download: {len(tracks_to_download)}")
+        
         for idx, track in enumerate(tracks_to_download, 1):
-            if download_process['stop']: return {'stopped': True}
+            if download_process['stop']:
+                logger.warning(f"⏹️  Download stopped by user")
+                return {'stopped': True}
             
             track_title = track['title']
             try:
@@ -433,6 +453,8 @@ def process_album_download(album_id, force=False):
             download_process['progress']['total'] = len(tracks_to_download)
             download_process['progress']['overall_percent'] = int((idx / len(tracks_to_download)) * 100)
             
+            logger.info(f"⬇️  Downloading track {idx}/{len(tracks_to_download)}: {track_title}")
+            
             query = f"{artist_name} {track_title} official audio"
             sanitized_track = sanitize_filename(track_title)
             
@@ -443,10 +465,17 @@ def process_album_download(album_id, force=False):
             actual_file = temp_file + '.mp3'
             
             if download_success and os.path.exists(actual_file):
+                logger.info(f"✅ Track downloaded successfully: {track_title}")
                 time.sleep(0.5)
+                logger.info(f"🏷️  Adding metadata tags...")
                 tag_mp3(actual_file, track, album, cover_data)
-                create_xml_metadata(album_path, artist_name, album_title, track_num, track_title, album_mbid, artist_mbid)
+                config = load_config()
+                if config.get('xml_metadata_enabled', True):
+                    logger.info(f"📄 Creating XML metadata file...")
+                    create_xml_metadata(album_path, artist_name, album_title, track_num, track_title, album_mbid, artist_mbid)
                 shutil.move(actual_file, final_file)
+            else:
+                logger.warning(f"⚠️  Failed to download track: {track_title}")
             
             # Update progress after track completion
             download_process['progress']['current'] = idx
@@ -455,14 +484,18 @@ def process_album_download(album_id, force=False):
 
         set_permissions(artist_path)
         
+        logger.info(f"📥 Importing album to Lidarr...")
         if force_lidarr_import(album_path, artist_id, album_id, release_id):
+            logger.info(f"✅ Album imported successfully: {artist_name} - {album_title}")
             lidarr_request('command', method='POST', data={'name': 'RefreshArtist', 'artistId': artist_id})
             send_telegram(f"✅ Album downloaded: {artist_name} - {album_title}")
             return {'success': True}
         else:
+            logger.error(f"❌ Import failed for album: {artist_name} - {album_title}")
             return {'error': 'Import failed'}
             
     except Exception as e:
+        logger.error(f"❌ Error during album download: {str(e)}")
         return {'error': str(e)}
     finally:
         with queue_lock:
@@ -533,6 +566,8 @@ def api_download(album_id):
 @app.route('/api/download/stop', methods=['POST'])
 def api_download_stop():
     download_process['stop'] = True
+    with queue_lock:
+        download_queue.clear()
     return jsonify({'success': True})
 
 @app.route('/api/download/status')
@@ -596,6 +631,13 @@ def api_autodownload_toggle():
     save_config(config)
     return jsonify({'enabled': config['scheduler_auto_download']})
 
+@app.route('/api/xmlmetadata/toggle', methods=['POST'])
+def api_xmlmetadata_toggle():
+    config = load_config()
+    config['xml_metadata_enabled'] = not config.get('xml_metadata_enabled', True)
+    save_config(config)
+    return jsonify({'enabled': config['xml_metadata_enabled']})
+
 def scheduled_check():
     if download_process['active']: return
     config = load_config()
@@ -617,11 +659,13 @@ def scheduled_check():
     
     if new_albums:
         if config.get('scheduler_auto_download', True):
+            logger.info(f"🤖 Scheduler: Found {len(new_albums)} new missing albums, adding to queue...")
             send_telegram(f"🚀 Scheduler: Adding {len(new_albums)} new missing albums to queue...")
             with queue_lock:
                 for album in new_albums:
                     download_queue.append(album['id'])
         else:
+            logger.info(f"🔍 Scheduler: Found {len(new_albums)} missing albums (Auto-Download disabled)")
             send_telegram(f"🔍 Scheduler: Found {len(new_albums)} missing albums (Auto-DL Disabled)")
 
 def run_scheduler():
@@ -647,7 +691,11 @@ def process_download_queue():
         time.sleep(2)
 
 if __name__ == '__main__':
+    logger.info("🚀 Starting Lidarr YouTube Downloader...")
+    logger.info(f"📌 Version: {VERSION}")
+    logger.info(f"📂 Download directory: {DOWNLOAD_DIR if DOWNLOAD_DIR else 'Not set (check DOWNLOAD_PATH env)'}")
     setup_scheduler()
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=process_download_queue, daemon=True).start()
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    logger.info("✅ Application started successfully on http://0.0.0.0:5000")
+    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
