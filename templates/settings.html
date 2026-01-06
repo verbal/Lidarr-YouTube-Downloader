@@ -475,19 +475,14 @@
                         <span>🎵 Download Started</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="log_download_success" value="download_success"
+                        <input type="checkbox" id="log_download_outcome" value="download_outcome"
                             style="width: auto; cursor: pointer;">
-                        <span>✅ Download Success</span>
+                        <span>✅ Download Success / Partial</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="log_partial_success" value="partial_success"
+                        <input type="checkbox" id="log_import_outcome" value="import_outcome"
                             style="width: auto; cursor: pointer;">
-                        <span>⚠️ Partial Success</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="log_import_success" value="import_success"
-                            style="width: auto; cursor: pointer;">
-                        <span>✅ Import Success</span>
+                        <span>✅ Import Success / Partial</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                         <input type="checkbox" id="log_import_failed" value="import_failed"
@@ -572,13 +567,25 @@
             document.getElementById('chatId').value = conf.telegram_chat_id;
 
             // Load telegram log type filters
+            // Load telegram log type filters
             const logTypes = conf.telegram_log_types || [];
-            ['download_started', 'download_success', 'partial_success', 'import_success', 'import_failed', 'album_error'].forEach(type => {
+
+            // Standard mappings
+            ['download_started', 'import_failed', 'album_error'].forEach(type => {
                 const checkbox = document.getElementById(`log_${type}`);
-                if (checkbox) {
-                    checkbox.checked = logTypes.includes(type);
-                }
+                if (checkbox) checkbox.checked = logTypes.includes(type);
             });
+
+            // Grouped mappings
+            const dlOutcome = document.getElementById('log_download_outcome');
+            if (dlOutcome) {
+                dlOutcome.checked = logTypes.includes('download_success') || logTypes.includes('partial_success');
+            }
+
+            const impOutcome = document.getElementById('log_import_outcome');
+            if (impOutcome) {
+                impOutcome.checked = logTypes.includes('import_success') || logTypes.includes('import_partial');
+            }
 
             // Load environment variables
             document.getElementById('downloadPath').value = conf.download_path || '';
@@ -634,12 +641,35 @@
         async function saveConfig() {
             // Collect selected log types
             const selectedLogTypes = [];
-            ['download_started', 'download_success', 'partial_success', 'import_success', 'import_failed', 'album_error'].forEach(type => {
+
+            // Standard mappings
+            ['download_started', 'import_failed', 'album_error'].forEach(type => {
                 const checkbox = document.getElementById(`log_${type}`);
                 if (checkbox && checkbox.checked) {
                     selectedLogTypes.push(type);
                 }
             });
+
+            // Grouped mappings
+            if (document.getElementById('log_download_outcome').checked) {
+                selectedLogTypes.push('download_success');
+                selectedLogTypes.push('partial_success');
+            }
+
+            if (document.getElementById('log_import_outcome').checked) {
+                selectedLogTypes.push('import_success');
+                selectedLogTypes.push('import_partial');
+            }
+
+            // Path Safety Check
+            const dPath = document.getElementById('downloadPath').value.trim().replace(/\\/g, '/').toLowerCase();
+            const lPath = document.getElementById('lidarrPath').value.trim().replace(/\\/g, '/').toLowerCase();
+
+            if (dPath && lPath && dPath === lPath) {
+                if (!confirm("⚠️ WARNING: Download Path and Lidarr Path are identical.\n\nThis will disable the auto-cleanup feature to prevent file deletion. Are you sure you want to proceed?")) {
+                    return;
+                }
+            }
 
             await fetch('/api/config', {
                 method: 'POST',
