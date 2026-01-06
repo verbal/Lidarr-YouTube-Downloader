@@ -23,7 +23,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 CONFIG_FILE = "/config/config.json"
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
@@ -39,7 +39,7 @@ download_process = {
 
 download_queue = []
 download_history = []
-download_logs = []  # Tracks errors and issues
+download_logs = []                            
 queue_lock = threading.Lock()
 
 
@@ -47,8 +47,8 @@ def load_config():
     config = {
         "lidarr_url": os.getenv("LIDARR_URL", ""),
         "lidarr_api_key": os.getenv("LIDARR_API_KEY", ""),
-        "lidarr_path": os.getenv("LIDARR_PATH", ""),  # Path to Lidarr music folder
-        "download_path": os.getenv("DOWNLOAD_PATH", ""),  # Download temporary folder
+        "lidarr_path": os.getenv("LIDARR_PATH", ""),                               
+        "download_path": os.getenv("DOWNLOAD_PATH", ""),                             
         "scheduler_enabled": os.getenv("SCHEDULER_ENABLED", "false").lower() == "true",
         "scheduler_auto_download": os.getenv("SCHEDULER_AUTO_DOWNLOAD", "true").lower()
         == "true",
@@ -58,12 +58,16 @@ def load_config():
         "telegram_chat_id": os.getenv("TELEGRAM_CHAT_ID", ""),
         "telegram_log_types": [
             "partial_success",
+            "import_partial",
             "import_failed",
             "album_error",
-        ],  # Default: errors only
+        ],                        
         "xml_metadata_enabled": os.getenv("XML_METADATA_ENABLED", "true").lower()
         == "true",
+        "path_conflict": False,
     }
+    
+    
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
@@ -75,6 +79,18 @@ def load_config():
                 config["scheduler_interval"] = int(config["scheduler_interval"])
         except:
             pass
+
+    def norm(p):
+        return os.path.normcase(os.path.abspath(str(p))).rstrip("\\/") if p else ""
+
+    l_path = norm(config.get("lidarr_path"))
+    d_path = norm(config.get("download_path"))
+    
+    config["path_conflict"] = bool(l_path and l_path == d_path)
+    
+    if config["path_conflict"]:
+        logger.warning(f"⚠️ Path Conflict Detected: {l_path}")
+
     return config
 
 
@@ -100,11 +116,11 @@ def send_telegram(message, log_type=None):
         and config.get("telegram_bot_token")
         and config.get("telegram_chat_id")
     ):
-        # If log_type is specified, check if it's in the allowed types
+                                                                      
         if log_type is not None:
             allowed_types = config.get("telegram_log_types", [])
             if log_type not in allowed_types:
-                return  # Don't send if log type is filtered out
+                return                                          
 
         try:
             url = f"https://api.telegram.org/bot{config['telegram_bot_token']}/sendMessage"
@@ -139,7 +155,7 @@ def add_download_log(
             "dismissed": False,
         }
         download_logs.append(log_entry)
-        # Keep only last 100 logs
+                                 
         if len(download_logs) > 100:
             download_logs.pop(0)
 
@@ -498,7 +514,7 @@ def process_album_download(album_id, force=False):
         album_title = album["title"]
         release_year = str(album.get("releaseDate", ""))[:4]
 
-        # Update download process with album info
+                                                 
         download_process["album_title"] = album_title
         download_process["artist_name"] = artist_name
 
@@ -518,7 +534,7 @@ def process_album_download(album_id, force=False):
         album_path = os.path.join(artist_path, album_folder_name)
         os.makedirs(album_path, exist_ok=True)
 
-        # Log download started
+                              
         add_download_log(
             log_type="download_started",
             album_id=album_id,
@@ -580,7 +596,7 @@ def process_album_download(album_id, force=False):
             except:
                 track_num = idx
 
-            # Update current track info
+                                       
             download_process["current_track_title"] = track_title
             download_process["progress"]["current"] = idx
             download_process["progress"]["total"] = len(tracks_to_download)
@@ -625,7 +641,7 @@ def process_album_download(album_id, force=False):
                 logger.warning(f"⚠️  Failed to download track: {track_title}")
                 failed_tracks.append(track_title)
 
-            # Update progress after track completion
+                                                    
             download_process["progress"]["current"] = idx
             download_process["progress"]["total"] = len(tracks_to_download)
             download_process["progress"]["overall_percent"] = int(
@@ -636,24 +652,42 @@ def process_album_download(album_id, force=False):
 
         if failed_tracks:
             failed_list = "\n".join([f"• {t}" for t in failed_tracks])
-            send_telegram(
-                f"❌ Download failed\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n\nFailed tracks:\n{failed_list}",
-                log_type="partial_success",
-            )
-            logger.warning(
-                f"⚠️  Download completed with {len(failed_tracks)} failed tracks"
-            )
-            # Log partial success with failed tracks
-            add_download_log(
-                log_type="partial_success",
-                album_id=album_id,
-                album_title=album_title,
-                artist_name=artist_name,
-                details=f"{len(failed_tracks)} track(s) failed to download out of {len(tracks_to_download)}",
-                failed_tracks=failed_tracks,
-            )
+
+            if len(failed_tracks) == len(tracks_to_download):
+                send_telegram(
+                    f"❌ Download Failed (All Tracks)\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n\nFailed tracks:\n{failed_list}",
+                    log_type="album_error",
+                )
+                logger.error(
+                    f"❌ All {len(failed_tracks)} tracks failed to download. Skipping import."
+                )
+                add_download_log(
+                    log_type="album_error",
+                    album_id=album_id,
+                    album_title=album_title,
+                    artist_name=artist_name,
+                    details=f"All {len(tracks_to_download)} track(s) failed to download",
+                    failed_tracks=failed_tracks,
+                )
+                return {"error": "All tracks failed to download"}
+
+            else:
+                send_telegram(
+                    f"⚠️ Partial Download Completed\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n\nFailed tracks:\n{failed_list}",
+                    log_type="partial_success",
+                )
+                logger.warning(
+                    f"⚠️  Download completed with {len(failed_tracks)} failed tracks. Proceeding with import."
+                )
+                add_download_log(
+                    log_type="partial_success",
+                    album_id=album_id,
+                    album_title=album_title,
+                    artist_name=artist_name,
+                    details=f"{len(failed_tracks)} track(s) failed to download out of {len(tracks_to_download)}",
+                    failed_tracks=failed_tracks,
+                )
         else:
-            # Log download success
             add_download_log(
                 log_type="download_success",
                 album_id=album_id,
@@ -670,21 +704,28 @@ def process_album_download(album_id, force=False):
 
         logger.info(f"📥 Importing album to Lidarr...")
 
-        # Get Lidarr music path
+                               
         config = load_config()
         lidarr_path = config.get("lidarr_path", "")
 
-        # If LIDARR_PATH is set, copy files there first
+                                                       
         if lidarr_path:
-            logger.info(f"📂 Moving files to Lidarr music folder: {lidarr_path}")
+            abs_lidarr = os.path.abspath(lidarr_path)
+            abs_download = os.path.abspath(DOWNLOAD_DIR)
+            
+            if abs_lidarr == abs_download:
+                logger.warning("⚠️ LIDARR_PATH matches DOWNLOAD_PATH. Skipping move and cleanup to prevent data loss.")
+                lidarr_path = ""
+            else:
+                logger.info(f"📂 Moving files to Lidarr music folder: {lidarr_path}")
             lidarr_artist_path = os.path.join(lidarr_path, sanitized_artist)
             lidarr_album_path = os.path.join(lidarr_artist_path, album_folder_name)
 
             try:
-                # Create destination folder in Lidarr path
+                                                          
                 os.makedirs(lidarr_album_path, exist_ok=True)
 
-                # Copy all files from download folder to Lidarr folder
+                                                                      
                 for item in os.listdir(album_path):
                     src = os.path.join(album_path, item)
                     dst = os.path.join(lidarr_album_path, item)
@@ -695,30 +736,45 @@ def process_album_download(album_id, force=False):
                 set_permissions(lidarr_artist_path)
                 logger.info(f"✅ Files copied to Lidarr folder successfully")
 
-                # Use Lidarr path for import
+                                            
                 import_path = lidarr_album_path
             except Exception as e:
                 logger.error(f"❌ Error copying files to Lidarr folder: {str(e)}")
-                # Fallback to download path if copy fails
+                                                         
                 import_path = album_path
         else:
             import_path = album_path
 
         logger.info(f"✅ Album downloaded successfully: {artist_name} - {album_title}")
 
-        add_download_log(
-            log_type="import_success",
-            album_id=album_id,
-            album_title=album_title,
-            artist_name=artist_name,
-            details="Album downloaded and refreshing in Lidarr",
-            failed_tracks=[],
-        )
+        if failed_tracks:
+            add_download_log(
+                log_type="import_partial",
+                album_id=album_id,
+                album_title=album_title,
+                artist_name=artist_name,
+                details=f"Album imported with {len(failed_tracks)} failed tracks",
+                failed_tracks=failed_tracks,
+            )
 
-        send_telegram(
-            f"✅ Import Success\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n📚 Refreshing in Lidarr",
-            log_type="import_success",
-        )
+            send_telegram(
+                f"⚠️ Import Partial\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n📚 Refreshing in Lidarr (Missing {len(failed_tracks)} tracks)",
+                log_type="import_partial",
+            )
+        else:
+            add_download_log(
+                log_type="import_success",
+                album_id=album_id,
+                album_title=album_title,
+                artist_name=artist_name,
+                details="Album downloaded and refreshing in Lidarr",
+                failed_tracks=[],
+            )
+
+            send_telegram(
+                f"✅ Import Success\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n📚 Refreshing in Lidarr",
+                log_type="import_success",
+            )
 
         lidarr_request(
             "command",
@@ -744,7 +800,7 @@ def process_album_download(album_id, force=False):
             f"❌ Download failed\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}",
             log_type="album_error",
         )
-        # Log album download error
+                                  
         add_download_log(
             log_type="album_error",
             album_id=album_id,
@@ -961,7 +1017,7 @@ def api_xmlmetadata_toggle():
 def api_get_logs():
     """Get all download logs"""
     with queue_lock:
-        # Return logs in reverse chronological order (newest first)
+                                                                   
         return jsonify(
             sorted(download_logs, key=lambda x: x["timestamp"], reverse=True)
         )
