@@ -76,6 +76,9 @@ Lidarr is amazing for managing music libraries, but sometimes the albums you wan
 | `LIDARR_API_KEY` | `your_api_key_here` | Found in Lidarr Settings -> General. |
 | `DOWNLOAD_PATH` | `/DATA/Downloads` | Must match the Container Path above. |
 | `LIDARR_PATH` | `/music` | Lidarr's music library folder (optional, leave empty to use download path). |
+| `PUID` | `1000` | User ID for file ownership (optional, default: root). |
+| `PGID` | `1000` | Group ID for file ownership (optional, default: root). |
+| `UMASK` | `002` | File permission mask (optional, default: 002 for 775/664). |
 
 ---
 
@@ -97,6 +100,9 @@ services:
       - LIDARR_API_KEY=your_lidarr_api_key
       - DOWNLOAD_PATH=/DATA/Downloads
       - LIDARR_PATH=/music
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
     restart: unless-stopped
 ```
 

@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -11,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /config
+RUN mkdir -p /config && chmod +x /app/entrypoint.sh
 
 EXPOSE 5000
 ENV FLASK_APP=app.py
@@ -22,5 +23,8 @@ ENV TELEGRAM_CHAT_ID=""
 ENV SCHEDULER_ENABLED="false"
 ENV SCHEDULER_INTERVAL="60"
 ENV SCHEDULER_AUTO_DOWNLOAD="false"
+ENV PUID=0
+ENV PGID=0
+ENV UMASK=002
 
-CMD ["python", "app.py"]
+ENTRYPOINT ["/app/entrypoint.sh"]

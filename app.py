@@ -319,17 +319,38 @@ def update_progress(d):
         )
 
 
-def set_permissions(path):
+def get_umask():
+    """Parse UMASK from environment variable. Defaults to 002 (775/664 permissions)."""
+    umask_str = os.getenv("UMASK", "002").strip()
     try:
+        if umask_str.startswith("0o"):
+            return int(umask_str, 8)
+        return int(umask_str, 8)
+    except ValueError:
+        return 0o002
+
+
+def set_permissions(path):
+    """Set permissions based on UMASK environment variable.
+
+    Default UMASK=002 results in:
+    - Directories: 775 (rwxrwxr-x)
+    - Files: 664 (rw-rw-r--)
+    """
+    try:
+        umask = get_umask()
+        dir_mode = 0o777 & ~umask
+        file_mode = 0o666 & ~umask
+
         if os.path.isdir(path):
-            os.chmod(path, 0o777)
+            os.chmod(path, dir_mode)
             for root, dirs, files in os.walk(path):
                 for d in dirs:
-                    os.chmod(os.path.join(root, d), 0o777)
+                    os.chmod(os.path.join(root, d), dir_mode)
                 for f in files:
-                    os.chmod(os.path.join(root, f), 0o666)
+                    os.chmod(os.path.join(root, f), file_mode)
         else:
-            os.chmod(path, 0o666)
+            os.chmod(path, file_mode)
     except:
         pass
 
