@@ -534,8 +534,9 @@ def process_album_download(album_id, force=False):
         artist_mbid = album["artist"].get("foreignArtistId", "")
         album_title = album["title"]
         release_year = str(album.get("releaseDate", ""))[:4]
+        album_type = album.get("albumType", "Album")
 
-                                                 
+
         download_process["album_title"] = album_title
         download_process["artist_name"] = artist_name
 
@@ -549,9 +550,10 @@ def process_album_download(album_id, force=False):
         sanitized_album = sanitize_filename(album_title)
 
         artist_path = os.path.join(DOWNLOAD_DIR, sanitized_artist)
-        album_folder_name = (
-            f"{sanitized_album} ({release_year})" if release_year else sanitized_album
-        )
+        if release_year:
+            album_folder_name = f"{sanitized_album} ({release_year}) [{album_type}]"
+        else:
+            album_folder_name = f"{sanitized_album} [{album_type}]"
         album_path = os.path.join(artist_path, album_folder_name)
         os.makedirs(album_path, exist_ok=True)
 
