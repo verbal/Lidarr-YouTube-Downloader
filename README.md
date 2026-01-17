@@ -2,8 +2,8 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue.svg?style=for-the-badge)
-![Python](https://img.shields.io/badge/python-3.12+-yellow.svg?style=for-the-badge&logo=python&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.2.1-blue.svg?style=for-the-badge)
+![Python](https://img.shields.io/badge/python-3.14+-yellow.svg?style=for-the-badge&logo=python&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker-ready-blue.svg?style=for-the-badge&logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
 
