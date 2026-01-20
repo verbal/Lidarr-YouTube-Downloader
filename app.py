@@ -381,8 +381,8 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
         except:
             pass
 
-        if album_info.get("releases"):
-            release = album_info["releases"][0]
+        release = get_monitored_release(album_info)
+        if release:
             if track_info.get("foreignRecordingId"):
                 audio.tags.add(
                     TXXX(
@@ -486,6 +486,17 @@ def get_valid_release_id(album):
         if rel.get("id", 0) > 0:
             return rel["id"]
     return 0
+
+
+def get_monitored_release(album):
+    """Get the monitored release from an album, or fall back to the first release."""
+    releases = album.get("releases", [])
+    if not releases:
+        return None
+    for rel in releases:
+        if rel.get("monitored", False):
+            return rel
+    return releases[0]
 
 
 def process_album_download(album_id, force=False):
