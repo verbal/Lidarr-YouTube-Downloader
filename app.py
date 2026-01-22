@@ -23,7 +23,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 
 CONFIG_FILE = "/config/config.json"
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
@@ -64,6 +64,7 @@ def load_config():
         ],                        
         "xml_metadata_enabled": os.getenv("XML_METADATA_ENABLED", "true").lower()
         == "true",
+        "forbidden_words": ["remix", "cover", "mashup", "bootleg", "live", "dj mix"],
         "path_conflict": False,
     }
     
@@ -259,7 +260,8 @@ def download_track_youtube(query, output_path, track_title_original):
         with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
             search_results = ydl.extract_info(f"ytsearch10:{query}", download=False)
 
-            forbidden_words = ["remix", "cover", "mashup", "bootleg", "live", "dj mix"]
+            config = load_config()
+            forbidden_words = config.get("forbidden_words", ["remix", "cover", "mashup", "bootleg", "live", "dj mix"])
 
             for entry in search_results.get("entries", []):
                 title = entry.get("title", "").lower()
