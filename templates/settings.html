@@ -507,6 +507,14 @@
                     </label>
                 </div>
             </div>
+            <div class="input-group">
+                <label>
+                    Duration Tolerance (seconds)
+                    <div class="label-description">Allowed difference between track duration and YouTube video length.
+                        Recommended: 5-15 seconds.</div>
+                </label>
+                <input type="number" id="durationTolerance" value="10" min="1" max="60">
+            </div>
         </div>
 
         <div class="settings-section">
@@ -668,6 +676,9 @@
                 }
             });
 
+            // Load duration tolerance
+            document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
+
             updateSchedulerBtn(conf.scheduler_enabled);
             updateAutoDlBtn(conf.scheduler_auto_download);
             updateXmlMetadataBtn(conf.xml_metadata_enabled !== false);
@@ -768,7 +779,8 @@
                     telegram_log_types: selectedLogTypes,
                     download_path: document.getElementById('downloadPath').value,
                     lidarr_path: document.getElementById('lidarrPath').value,
-                    forbidden_words: forbiddenWords
+                    forbidden_words: forbiddenWords,
+                    duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10
                 })
             });
             alert('✓ Configuration Saved!\n\n⚠️ Note: Changes to Download Path and Lidarr Path require an application restart.');
