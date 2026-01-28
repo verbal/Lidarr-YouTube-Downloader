@@ -92,7 +92,7 @@ Users are responsible for complying with copyright laws and YouTube's ToS.
 
 <div align="center">
 
-**Made with ❤️ for the Lidarr community**
+**Made with ❤️**
 
 
 </div>
