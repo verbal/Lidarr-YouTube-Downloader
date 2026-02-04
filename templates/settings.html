@@ -445,6 +445,80 @@
 
         <div class="settings-section">
             <div class="section-header">
+                <i class="fa-solid fa-filter"></i>
+                <h2>YouTube Search Filters</h2>
+            </div>
+            <div class="input-group">
+                <label>
+                    Forbidden Words
+                    <div class="label-description">Select words to filter out from YouTube search results</div>
+                </label>
+                <div
+                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-top: 0.5rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_remix" value="remix" style="width: auto; cursor: pointer;">
+                        <span>🎵 Remix</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_cover" value="cover" style="width: auto; cursor: pointer;">
+                        <span>🎤 Cover</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_mashup" value="mashup" style="width: auto; cursor: pointer;">
+                        <span>🔀 Mashup</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_bootleg" value="bootleg" style="width: auto; cursor: pointer;">
+                        <span>📼 Bootleg</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_live" value="live" style="width: auto; cursor: pointer;">
+                        <span>🎸 Live</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_djmix" value="dj mix" style="width: auto; cursor: pointer;">
+                        <span>🎧 DJ Mix</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_karaoke" value="karaoke" style="width: auto; cursor: pointer;">
+                        <span>🎤 Karaoke</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_acoustic" value="acoustic" style="width: auto; cursor: pointer;">
+                        <span>🎻 Acoustic</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_instrumental" value="instrumental"
+                            style="width: auto; cursor: pointer;">
+                        <span>🎹 Instrumental</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_slowed" value="slowed" style="width: auto; cursor: pointer;">
+                        <span>🐌 Slowed</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_reverb" value="reverb" style="width: auto; cursor: pointer;">
+                        <span>🌊 Reverb</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_nightcore" value="nightcore"
+                            style="width: auto; cursor: pointer;">
+                        <span>⚡ Nightcore</span>
+                    </label>
+                </div>
+            </div>
+            <div class="input-group">
+                <label>
+                    Duration Tolerance (seconds)
+                    <div class="label-description">Allowed difference between track duration and YouTube video length.
+                        Recommended: 5-15 seconds.</div>
+                </label>
+                <input type="number" id="durationTolerance" value="10" min="1" max="60">
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
                 <i class="fa-brands fa-telegram"></i>
                 <h2>Telegram Notifications</h2>
             </div>
@@ -591,6 +665,20 @@
             document.getElementById('downloadPath').value = conf.download_path || '';
             document.getElementById('lidarrPath').value = conf.lidarr_path || '';
 
+            // Load forbidden words - check the appropriate checkboxes
+            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix"];
+            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_acoustic', 'fw_instrumental', 'fw_slowed', 'fw_reverb', 'fw_nightcore'];
+
+            forbiddenWordIds.forEach(id => {
+                const checkbox = document.getElementById(id);
+                if (checkbox) {
+                    checkbox.checked = forbiddenWords.includes(checkbox.value);
+                }
+            });
+
+            // Load duration tolerance
+            document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
+
             updateSchedulerBtn(conf.scheduler_enabled);
             updateAutoDlBtn(conf.scheduler_auto_download);
             updateXmlMetadataBtn(conf.xml_metadata_enabled !== false);
@@ -671,6 +759,13 @@
                 }
             }
 
+            // Parse and validate forbidden words from checkboxes
+            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_acoustic', 'fw_instrumental', 'fw_slowed', 'fw_reverb', 'fw_nightcore'];
+            const forbiddenWords = forbiddenWordIds
+                .map(id => document.getElementById(id))
+                .filter(checkbox => checkbox && checkbox.checked)
+                .map(checkbox => checkbox.value);
+
             await fetch('/api/config', {
                 method: 'POST',
                 headers: {
@@ -683,7 +778,9 @@
                     telegram_enabled: !!document.getElementById('botToken').value,
                     telegram_log_types: selectedLogTypes,
                     download_path: document.getElementById('downloadPath').value,
-                    lidarr_path: document.getElementById('lidarrPath').value
+                    lidarr_path: document.getElementById('lidarrPath').value,
+                    forbidden_words: forbiddenWords,
+                    duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10
                 })
             });
             alert('✓ Configuration Saved!\n\n⚠️ Note: Changes to Download Path and Lidarr Path require an application restart.');
