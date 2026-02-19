@@ -735,7 +735,7 @@
     </div>
 
     <footer>
-        <div>Made with love ❤️ <span id="versionDisplay"></span></div>
+        <div>Made with love ❤️ - {{ APP_VERSION }}</div>
         <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
     </footer>
 
@@ -746,6 +746,12 @@
         let currentFilteredLogs = [];
         let logsDisplayed = 0;
 
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
 
         function toggleTheme() {
             const toggle = document.getElementById('themeToggle');
@@ -824,7 +830,7 @@
                     <ul class="failed-tracks-list">
                         ${log.failed_tracks.map(track => {
                             if (typeof track === 'object' && track.title) {
-                                return `<li><strong>${track.title}</strong>${track.reason ? `<div class="failed-track-reason"><i class="fas fa-arrow-right"></i> ${track.reason}</div>` : ''}</li>`;
+                                return `<li><strong>${escapeHtml(track.title)}</strong>${track.reason ? `<div class="failed-track-reason"><i class="fas fa-arrow-right"></i> ${escapeHtml(track.reason)}</div>` : ''}</li>`;
                             }
                             return `<li>${track}</li>`;
                         }).join('')}
@@ -840,8 +846,8 @@
                                 <i class="fas ${typeInfo.icon}"></i>
                                 ${typeInfo.name}
                             </div>
-                            <div class="log-album">${log.album_title}</div>
-                            <div class="log-artist">by ${log.artist_name}</div>
+                            <div class="log-album">${escapeHtml(log.album_title)}</div>
+                            <div class="log-artist">by ${escapeHtml(log.artist_name)}</div>
                         </div>
                         <div class="log-actions">
                             <button class="btn-icon" onclick="dismissLog('${log.id}')" title="Dismiss">
@@ -849,7 +855,7 @@
                             </button>
                         </div>
                     </div>
-                    ${log.details ? `<div class="log-details"><div class="log-details-title">Details:</div>${log.details}</div>` : ''}
+                    ${log.details ? `<div class="log-details"><div class="log-details-title">Details:</div>${escapeHtml(log.details)}</div>` : ''}
                     ${failedTracksHtml}
                     <div class="log-timestamp">
                         <i class="fas fa-clock"></i> ${formatTimestamp(log.timestamp)}
@@ -993,18 +999,6 @@
 
         setInterval(fetchLogs, 30000);
 
-
-        async function loadVersion() {
-            try {
-                const res = await fetch('/api/version');
-                const data = await res.json();
-                if (data.version) {
-                    document.getElementById('versionDisplay').textContent = `• v${data.version}`;
-                }
-            } catch (e) {
-            }
-        }
-        loadVersion();
 
     </script>
 </body>
