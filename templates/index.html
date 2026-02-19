@@ -292,12 +292,59 @@
         }
 
         .progress-minimized-btn:hover {
-            transform: scale(1.1);
+            transform: scale(1.15);
             box-shadow: 0 12px 32px rgba(16, 185, 129, 0.6);
         }
 
         .progress-minimized-btn:active {
             transform: scale(0.95);
+        }
+
+        .minimized-badge {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            min-width: 22px;
+            height: 22px;
+            padding: 0 5px;
+            background: #ef4444;
+            color: white;
+            border-radius: 11px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid var(--bg);
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+            line-height: 1;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+
+        .minimized-progress-ring {
+            position: absolute;
+            top: -3px;
+            left: -3px;
+            width: 66px;
+            height: 66px;
+            pointer-events: none;
+        }
+
+        .minimized-progress-ring circle {
+            fill: none;
+            stroke-width: 3;
+        }
+
+        .minimized-progress-ring .ring-bg {
+            stroke: rgba(255, 255, 255, 0.15);
+        }
+
+        .minimized-progress-ring .ring-fill {
+            stroke: white;
+            stroke-linecap: round;
+            transform: rotate(-90deg);
+            transform-origin: center;
+            transition: stroke-dashoffset 0.5s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .container {
@@ -896,6 +943,26 @@
             justify-content: space-between;
             align-items: flex-start;
             margin-bottom: 1rem;
+            gap: 0.75rem;
+        }
+
+        .progress-cover {
+            width: 52px;
+            height: 52px;
+            min-width: 52px;
+            border-radius: 8px;
+            object-fit: cover;
+            border: 1px solid var(--border);
+            display: none;
+        }
+
+        .progress-cover.active {
+            display: block;
+        }
+
+        .progress-info {
+            flex: 1;
+            min-width: 0;
         }
 
         .progress-info h3 {
@@ -903,12 +970,18 @@
             font-weight: 700;
             margin-bottom: 0.25rem;
             color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .progress-info p {
             font-size: 0.85rem;
             color: var(--text-dim);
             margin: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .progress-close {
@@ -1228,6 +1301,11 @@
                 width: 56px;
                 height: 56px;
                 font-size: 1.3rem;
+            }
+
+            .minimized-progress-ring {
+                width: 62px;
+                height: 62px;
             }
 
             .table-view {
@@ -1627,6 +1705,7 @@
 
     <div class="progress-container" id="progressContainer">
         <div class="progress-header">
+            <img id="progressCover" class="progress-cover" src="" alt="">
             <div class="progress-info">
                 <h3 id="progressAlbumTitle">Downloading Album</h3>
                 <p id="progressArtistName">Artist Name</p>
@@ -1679,11 +1758,16 @@
     </div>
 
     <button class="progress-minimized-btn" id="progressMinimizedBtn" onclick="restoreProgress()">
+        <svg class="minimized-progress-ring" viewBox="0 0 66 66">
+            <circle class="ring-bg" cx="33" cy="33" r="30"></circle>
+            <circle class="ring-fill" id="minimizedRing" cx="33" cy="33" r="30" stroke-dasharray="188.5" stroke-dashoffset="188.5"></circle>
+        </svg>
         <i class="fa-solid fa-download"></i>
+        <span class="minimized-badge" id="minimizedBadge">0/0</span>
     </button>
 
     <footer>
-        <div>Made with love ❤️ <span id="versionDisplay"></span></div>
+        <div>Made with love ❤️ - {{ APP_VERSION }}</div>
         <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
     </footer>
 
@@ -1692,11 +1776,18 @@
         let pollingInterval = null;
         let allAlbums = [];
         let currentViewMode = 'cards';
-        let isProgressMinimized = false;
+        let isProgressMinimized = true;
         const ALBUMS_PER_PAGE = 50;
         let displayedCount = 0;
         let currentFiltered = [];
         let queuedAlbumIds = new Set();
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
 
         document.addEventListener('DOMContentLoaded', () => {
             const saved = localStorage.getItem('theme') || 'dark';
@@ -1709,7 +1800,6 @@
             setViewMode(savedView);
 
             loadAlbums();
-            loadVersion();
             startGlobalPolling();
         });
 
@@ -1814,9 +1904,9 @@
             div.innerHTML = `
                 ${coverHtml}
                 <div class="card-content">
-                    <div class="card-title">${album.title}</div>
-                    <div class="card-artist">${album.artist.artistName}</div>
-                    <div style="font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem">${year} • ${album.missingTrackCount} Missing</div>
+                    <div class="card-title">${escapeHtml(album.title)}</div>
+                    <div class="card-artist">${escapeHtml(album.artist.artistName)}</div>
+                    <div style="font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem">${escapeHtml(year)} • ${album.missingTrackCount} Missing</div>
                     <div class="card-actions">
                         <button class="btn btn-primary" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)">Add to Queue</button>
                     </div>
@@ -1885,8 +1975,8 @@
             div.innerHTML = `
                 ${listCoverHtml}
                 <div class="list-item-info">
-                    <div class="list-item-title">${album.title}</div>
-                    <div class="list-item-artist">${album.artist.artistName} • ${year} • ${album.missingTrackCount} Missing</div>
+                    <div class="list-item-title">${escapeHtml(album.title)}</div>
+                    <div class="list-item-artist">${escapeHtml(album.artist.artistName)} • ${escapeHtml(year)} • ${album.missingTrackCount} Missing</div>
                 </div>
                 <div class="list-item-actions">
                     <button class="btn btn-primary" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)">Add to Queue</button>
@@ -1954,9 +2044,9 @@
             return `
                 <tr>
                     <td>${tableCoverHtml}</td>
-                    <td><div class="table-album-title">${album.title}</div></td>
-                    <td><span class="table-artist">${album.artist.artistName}</span></td>
-                    <td><span class="table-year">${year}</span></td>
+                    <td><div class="table-album-title">${escapeHtml(album.title)}</div></td>
+                    <td><span class="table-artist">${escapeHtml(album.artist.artistName)}</span></td>
+                    <td><span class="table-year">${escapeHtml(year)}</span></td>
                     <td>${album.missingTrackCount}</td>
                     <td><button class="btn btn-primary" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)">Add to Queue</button></td>
                 </tr>
@@ -1989,13 +2079,13 @@
         function createMobileRowHtml(album) {
             const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
             const year = album.releaseDate?.substring(0, 4) || '';
-            const artistYear = year ? `${album.artist.artistName} · ${year}` : album.artist.artistName;
+            const artistYear = year ? `${escapeHtml(album.artist.artistName)} · ${escapeHtml(year)}` : escapeHtml(album.artist.artistName);
             const coverHtml = cover
                 ? `<img src="${cover}" class="mob-cover">`
                 : `<div class="mob-cover-ph">${placeholderSvg}</div>`;
             return `
                 <tr>
-                    <td><div class="mob-cell">${coverHtml}<div class="mob-info"><div class="mob-title">${album.title}</div><div class="mob-artist">${artistYear}</div></div></div></td>
+                    <td><div class="mob-cell">${coverHtml}<div class="mob-info"><div class="mob-title">${escapeHtml(album.title)}</div><div class="mob-artist">${artistYear}</div></div></div></td>
                     <td>${album.missingTrackCount}</td>
                     <td><button class="btn btn-primary mob-btn" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)" title="Add to Queue"><i class="fa-solid fa-download"></i></button></td>
                 </tr>
@@ -2174,12 +2264,16 @@
 
         function handleProgressUpdate(data, queue) {
             if (!data.active) {
-                isProgressMinimized = false;
+                isProgressMinimized = true;
                 document.getElementById('progressContainer').classList.remove('active');
                 document.getElementById('progressMinimizedBtn').classList.remove('active');
+                document.getElementById('progressCover').classList.remove('active');
                 document.querySelectorAll('.card-progress-indicator').forEach(e => e.classList.remove('active'));
                 const badge = document.getElementById('queueBadge');
                 badge.classList.remove('active');
+                /* Reset minimized badge & ring */
+                document.getElementById('minimizedBadge').textContent = '0/0';
+                document.getElementById('minimizedRing').style.strokeDashoffset = 188.5;
                 queuedAlbumIds = new Set();
                 updateQueueButtons();
                 return;
@@ -2187,26 +2281,44 @@
 
             if (!isProgressMinimized) {
                 document.getElementById('progressContainer').classList.add('active');
+                document.getElementById('progressMinimizedBtn').classList.remove('active');
             } else {
                 document.getElementById('progressMinimizedBtn').classList.add('active');
+                document.getElementById('progressContainer').classList.remove('active');
             }
 
             if (data.album_title) document.getElementById('progressAlbumTitle').textContent = data.album_title;
             if (data.artist_name) document.getElementById('progressArtistName').textContent = data.artist_name;
             if (data.current_track_title) document.getElementById('currentTrackTitle').textContent = data.current_track_title;
 
-            if (data.progress && data.progress.current && data.progress.total) {
-                document.getElementById('trackProgress').textContent = `Track ${data.progress.current}/${data.progress.total}`;
+            const coverEl = document.getElementById('progressCover');
+            if (data.cover_url) {
+                coverEl.src = data.cover_url;
+                coverEl.classList.add('active');
+            } else {
+                coverEl.classList.remove('active');
+            }
 
-                const overallPercent = data.progress.overall_percent || Math.round((data.progress.current / data.progress.total) * 100);
+            if (data.progress && data.progress.current && data.progress.total) {
+                const currentTrack = data.progress.current;
+                const totalTracks = data.progress.total;
+                document.getElementById('trackProgress').textContent = `Track ${currentTrack}/${totalTracks}`;
+
+                const overallPercent = data.progress.overall_percent || Math.round((currentTrack / totalTracks) * 100);
                 document.getElementById('overallPercent').textContent = `${overallPercent}%`;
                 document.getElementById('progressFill').style.width = `${overallPercent}%`;
+
+                /* Update minimized button badge & ring */
+                document.getElementById('minimizedBadge').textContent = `${currentTrack}/${totalTracks}`;
+                const circumference = 2 * Math.PI * 30; /* r=30, ~188.5 */
+                const offset = circumference - (circumference * overallPercent / 100);
+                document.getElementById('minimizedRing').style.strokeDashoffset = offset;
 
                 const cardProgress = document.getElementById(`card-progress-${data.album_id}`);
                 if (cardProgress) {
                     cardProgress.classList.add('active');
                     document.getElementById(`mini-fill-${data.album_id}`).style.width = `${overallPercent}%`;
-                    document.getElementById(`mini-track-${data.album_id}`).textContent = `Track ${data.progress.current}/${data.progress.total}`;
+                    document.getElementById(`mini-track-${data.album_id}`).textContent = `Track ${currentTrack}/${totalTracks}`;
                     document.getElementById(`mini-percent-${data.album_id}`).textContent = `${overallPercent}%`;
                 }
             }
@@ -2237,7 +2349,7 @@
                 document.getElementById('queueList').innerHTML = queue.slice(0, 3).map((item, index) => `
                     <div class="queue-item-mini">
                         <div class="queue-item-position">${index + 1}</div>
-                        <div class="queue-item-text">${item.title} - ${item.artist}</div>
+                        <div class="queue-item-text">${escapeHtml(item.title)} - ${escapeHtml(item.artist)}</div>
                     </div>
                 `).join('');
             } else {
@@ -2288,17 +2400,6 @@
             if (confirm('Are you sure you want to stop the current download?')) {
                 await fetch('/api/download/stop', { method: 'POST' });
                 hideProgress();
-            }
-        }
-
-        async function loadVersion() {
-            try {
-                const res = await fetch('/api/version');
-                const data = await res.json();
-                if (data.version) {
-                    document.getElementById('versionDisplay').textContent = `• v${data.version}`;
-                }
-            } catch (e) {
             }
         }
 
