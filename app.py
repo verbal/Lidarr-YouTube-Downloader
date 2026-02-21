@@ -7,6 +7,7 @@ import re
 import logging
 import uuid
 import math
+import urllib.parse
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 from difflib import SequenceMatcher
@@ -27,7 +28,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 
 @app.context_processor
@@ -53,9 +54,32 @@ download_history = []
 download_logs = []
 queue_lock = threading.Lock()
 
+last_failed_result = {
+    "failed_tracks": [],
+    "album_id": None,
+    "album_title": "",
+    "artist_name": "",
+    "cover_url": "",
+    "album_path": "",
+    "album_data": None,
+    "cover_data": None,
+    "lidarr_album_path": "",
+}
+
 rate_limit_store = {}
 RATE_LIMIT_WINDOW = 2
 RATE_LIMIT_MAX = 5
+
+ALLOWED_CONFIG_KEYS = {
+    "scheduler_interval", "telegram_bot_token", "telegram_chat_id",
+    "telegram_enabled", "telegram_log_types", "download_path",
+    "lidarr_path", "forbidden_words", "duration_tolerance",
+    "scheduler_enabled", "scheduler_auto_download",
+    "xml_metadata_enabled", "yt_cookies_file", "yt_force_ipv4",
+    "yt_player_client", "yt_retries", "yt_fragment_retries",
+    "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
+    "discord_enabled", "discord_webhook_url", "discord_log_types",
+}
 
 
 def check_rate_limit(key, window=RATE_LIMIT_WINDOW, max_requests=RATE_LIMIT_MAX):
@@ -93,11 +117,15 @@ def load_persistent_data():
             download_logs = []
 
 
+_file_write_lock = threading.Lock()
+
+
 def save_history():
     try:
         os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
-        with open(HISTORY_FILE, "w") as f:
-            json.dump(download_history[-25:], f)
+        with _file_write_lock:
+            with open(HISTORY_FILE, "w") as f:
+                json.dump(download_history[-25:], f)
     except Exception as e:
         logger.warning(f"⚠️ Failed to save history: {e}")
 
@@ -105,8 +133,9 @@ def save_history():
 def save_logs():
     try:
         os.makedirs(os.path.dirname(LOGS_FILE), exist_ok=True)
-        with open(LOGS_FILE, "w") as f:
-            json.dump(download_logs[-100:], f)
+        with _file_write_lock:
+            with open(LOGS_FILE, "w") as f:
+                json.dump(download_logs[-100:], f)
     except Exception as e:
         logger.warning(f"⚠️ Failed to save logs: {e}")
 
@@ -141,6 +170,13 @@ def load_config():
         "yt_sleep_requests": int(os.getenv("YT_SLEEP_REQUESTS", "1")),
         "yt_sleep_interval": int(os.getenv("YT_SLEEP_INTERVAL", "1")),
         "yt_max_sleep_interval": int(os.getenv("YT_MAX_SLEEP_INTERVAL", "5")),
+        "discord_enabled": os.getenv("DISCORD_ENABLED", "false").lower() == "true",
+        "discord_webhook_url": os.getenv("DISCORD_WEBHOOK_URL", ""),
+        "discord_log_types": [
+            "partial_success",
+            "import_partial",
+            "album_error",
+        ],
         "path_conflict": False,
     }
     
@@ -179,8 +215,9 @@ def save_config(config):
         config["scheduler_interval"] = int(config["scheduler_interval"])
     if "duration_tolerance" in config:
         config["duration_tolerance"] = int(config["duration_tolerance"])
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2)
+    with _file_write_lock:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=2)
 
 
 def send_telegram(message, log_type=None):
@@ -207,8 +244,66 @@ def send_telegram(message, log_type=None):
             logger.warning(f"⚠️ Telegram notification failed: {e}")
 
 
+def send_discord(message, log_type=None, embed_data=None):
+    config = load_config()
+    if not config.get("discord_enabled"):
+        return
+    webhook_url = config.get("discord_webhook_url", "")
+    if not webhook_url:
+        return
+    if log_type is not None:
+        allowed_types = config.get("discord_log_types", [])
+        if log_type not in allowed_types:
+            return
+    try:
+        payload = {}
+        if embed_data:
+            embed = {
+                "title": embed_data.get("title", ""),
+                "description": embed_data.get("description", ""),
+                "color": embed_data.get("color", 0x10b981),
+            }
+            if embed_data.get("thumbnail"):
+                embed["thumbnail"] = {"url": embed_data["thumbnail"]}
+            if embed_data.get("fields"):
+                embed["fields"] = embed_data["fields"]
+            payload["embeds"] = [embed]
+        else:
+            payload["content"] = message
+        requests.post(webhook_url, json=payload, timeout=10)
+    except Exception as e:
+        logger.warning(f"⚠️ Discord notification failed: {e}")
+
+
+def send_notifications(message, log_type=None, embed_data=None):
+    send_telegram(message, log_type=log_type)
+    send_discord(message, log_type=log_type, embed_data=embed_data)
+
+
+def get_ytdlp_version():
+    try:
+        import importlib.metadata
+        return importlib.metadata.version("yt-dlp")
+    except Exception:
+        try:
+            return yt_dlp.version.__version__
+        except Exception:
+            return "unknown"
+
+
+def format_bytes(size_bytes):
+    if size_bytes <= 0:
+        return ""
+    for unit in ["B", "KB", "MB", "GB"]:
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
+
+
 def add_download_log(
-    log_type, album_id, album_title, artist_name, details=None, failed_tracks=None
+    log_type, album_id, album_title, artist_name, details=None, failed_tracks=None,
+    total_file_size=0,
 ):
     with queue_lock:
         log_entry = {
@@ -221,6 +316,7 @@ def add_download_log(
             "details": details or "",
             "failed_tracks": failed_tracks or [],
             "dismissed": False,
+            "total_file_size": total_file_size,
         }
         download_logs.append(log_entry)
         if len(download_logs) > 100:
@@ -471,7 +567,7 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
                 return f"Search failed: {str(e)[:120]}"
 
     if not candidates:
-        logger.warning(f"   ⚠️  No suitable candidates found after {len(search_queries)} search queries")
+        logger.warning(f"   ⚠️  No suitable candidates found after all search attempts")
         return "No suitable YouTube match found (filtered by duration/forbidden words)"
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -696,24 +792,34 @@ def get_valid_release_id(album):
 
 
 def process_album_download(album_id, force=False):
-    if download_process["active"]:
-        return {"error": "Busy"}
-    download_process["active"] = True
-    download_process["stop"] = False
-    download_process["result_success"] = True
-    download_process["result_partial"] = False
-    download_process["progress"] = {
-        "current": 0,
-        "total": 0,
-        "percent": "0%",
-        "speed": "N/A",
-        "overall_percent": 0,
-    }
-    download_process["album_id"] = album_id
-    download_process["album_title"] = ""
-    download_process["artist_name"] = ""
-    download_process["current_track_title"] = ""
-    download_process["cover_url"] = ""
+    with queue_lock:
+        if download_process["active"]:
+            return {"error": "Busy"}
+        download_process["active"] = True
+        download_process["stop"] = False
+        download_process["result_success"] = True
+        download_process["result_partial"] = False
+        download_process["progress"] = {
+            "current": 0,
+            "total": 0,
+            "percent": "0%",
+            "speed": "N/A",
+            "overall_percent": 0,
+        }
+        download_process["album_id"] = album_id
+        download_process["album_title"] = ""
+        download_process["artist_name"] = ""
+        download_process["current_track_title"] = ""
+        download_process["cover_url"] = ""
+
+    failed_tracks = []
+    album = {}
+    album_title = ""
+    artist_name = ""
+    album_path = ""
+    cover_data = None
+    lidarr_album_path = ""
+    total_downloaded_size = 0
 
     try:
         album = lidarr_request(f"album/{album_id}")
@@ -778,9 +884,10 @@ def process_album_download(album_id, force=False):
             details=f"Starting download of {len(tracks)} track(s)",
             failed_tracks=[],
         )
-        send_telegram(
+        send_notifications(
             f"🎵 Download Started\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n📦 Tracks: {len(tracks)}",
             log_type="download_started",
+            embed_data={"title": "Download Started", "description": f"{artist_name} — {album_title}", "color": 0x3498db, "fields": [{"name": "Tracks", "value": str(len(tracks)), "inline": True}]},
         )
 
         cover_data = get_itunes_artwork(artist_name, album_title)
@@ -817,8 +924,6 @@ def process_album_download(album_id, force=False):
             return {"success": True, "message": "Skipped"}
 
         logger.info(f"📦 Total tracks to download: {len(tracks_to_download)}")
-
-        failed_tracks = []
 
         for idx, track in enumerate(tracks_to_download, 1):
             if download_process["stop"]:
@@ -877,11 +982,23 @@ def process_album_download(album_id, force=False):
                         album_mbid,
                         artist_mbid,
                     )
+                try:
+                    total_downloaded_size += os.path.getsize(actual_file)
+                except OSError:
+                    pass
                 shutil.move(actual_file, final_file)
             else:
                 fail_reason = download_result if isinstance(download_result, str) else "Download failed or file not found"
                 logger.warning(f"⚠️  Failed to download track: {track_title} — {fail_reason}")
-                failed_tracks.append({"title": track_title, "reason": fail_reason})
+                # Clean up temp files from failed download
+                for ext in [".mp3", ".webm", ".m4a", ".part", ""]:
+                    tmp = temp_file + ext
+                    if os.path.exists(tmp):
+                        try:
+                            os.remove(tmp)
+                        except Exception:
+                            pass
+                failed_tracks.append({"title": track_title, "reason": fail_reason, "track_num": track_num})
 
                                                     
             download_process["progress"]["current"] = idx
@@ -896,9 +1013,10 @@ def process_album_download(album_id, force=False):
             failed_list = "\n".join([f"• {t['title']}" for t in failed_tracks])
 
             if len(failed_tracks) == len(tracks_to_download):
-                send_telegram(
+                send_notifications(
                     f"❌ Download Failed (All Tracks)\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n\nFailed tracks:\n{failed_list}",
                     log_type="album_error",
+                    embed_data={"title": "Download Failed", "description": f"{artist_name} — {album_title}", "color": 0xe74c3c, "fields": [{"name": "Failed Tracks", "value": failed_list[:1024], "inline": False}]},
                 )
                 logger.error(
                     f"❌ All {len(failed_tracks)} tracks failed to download. Skipping import."
@@ -916,9 +1034,10 @@ def process_album_download(album_id, force=False):
 
             else:
                 download_process["result_partial"] = True
-                send_telegram(
+                send_notifications(
                     f"⚠️ Partial Download Completed\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n\nFailed tracks:\n{failed_list}",
                     log_type="partial_success",
+                    embed_data={"title": "Partial Download", "description": f"{artist_name} — {album_title}", "color": 0xe67e22, "fields": [{"name": "Failed Tracks", "value": failed_list[:1024], "inline": False}]},
                 )
                 logger.warning(
                     f"⚠️  Download completed with {len(failed_tracks)} failed tracks. Proceeding with import."
@@ -930,6 +1049,7 @@ def process_album_download(album_id, force=False):
                     artist_name=artist_name,
                     details=f"{len(failed_tracks)} track(s) failed to download out of {len(tracks_to_download)}",
                     failed_tracks=failed_tracks,
+                    total_file_size=total_downloaded_size,
                 )
         else:
             add_download_log(
@@ -939,10 +1059,12 @@ def process_album_download(album_id, force=False):
                 artist_name=artist_name,
                 details=f"Successfully downloaded {len(tracks_to_download)} track(s)",
                 failed_tracks=[],
+                total_file_size=total_downloaded_size,
             )
-            send_telegram(
+            send_notifications(
                 f"✅ Download successful\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n📦 Tracks: {len(tracks_to_download)}/{len(tracks_to_download)}",
                 log_type="download_success",
+                embed_data={"title": "Download Successful", "description": f"{artist_name} — {album_title}", "color": 0x2ecc71, "fields": [{"name": "Tracks", "value": f"{len(tracks_to_download)}/{len(tracks_to_download)}", "inline": True}]},
             )
             logger.info(f"✅ All tracks downloaded successfully")
 
@@ -999,11 +1121,13 @@ def process_album_download(album_id, force=False):
                 artist_name=artist_name,
                 details=f"Album imported with {len(failed_tracks)} failed tracks",
                 failed_tracks=failed_tracks,
+                total_file_size=total_downloaded_size,
             )
 
-            send_telegram(
+            send_notifications(
                 f"⚠️ Import Partial\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n📚 Refreshing in Lidarr (Missing {len(failed_tracks)} tracks)",
                 log_type="import_partial",
+                embed_data={"title": "Import Partial", "description": f"{artist_name} — {album_title}", "color": 0xe67e22, "fields": [{"name": "Missing Tracks", "value": str(len(failed_tracks)), "inline": True}]},
             )
         else:
             add_download_log(
@@ -1013,11 +1137,13 @@ def process_album_download(album_id, force=False):
                 artist_name=artist_name,
                 details="Album downloaded and refreshing in Lidarr",
                 failed_tracks=[],
+                total_file_size=total_downloaded_size,
             )
 
-            send_telegram(
+            send_notifications(
                 f"✅ Import Success\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n📚 Refreshing in Lidarr",
                 log_type="import_success",
+                embed_data={"title": "Import Successful", "description": f"{artist_name} — {album_title}", "color": 0x2ecc71},
             )
 
         lidarr_request(
@@ -1040,9 +1166,10 @@ def process_album_download(album_id, force=False):
         logger.error(f"❌ Error during album download: {str(e)}")
         artist_name = download_process.get("artist_name", "Unknown")
         album_title = download_process.get("album_title", "Unknown")
-        send_telegram(
+        send_notifications(
             f"❌ Download failed\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}",
             log_type="album_error",
+            embed_data={"title": "Download Failed", "description": f"{artist_name} — {album_title}", "color": 0xe74c3c},
         )
         add_download_log(
             log_type="album_error",
@@ -1055,6 +1182,29 @@ def process_album_download(album_id, force=False):
         download_process["result_success"] = False
         return {"error": str(e)}
     finally:
+        _cover_url = download_process.get("cover_url", "")
+        if failed_tracks:
+            last_failed_result.update({
+                "failed_tracks": [
+                    {"title": t["title"], "reason": t["reason"], "track_num": t.get("track_num", 0)}
+                    for t in failed_tracks
+                ],
+                "album_id": album_id,
+                "album_title": download_process.get("album_title", "") or album_title,
+                "artist_name": download_process.get("artist_name", "") or artist_name,
+                "cover_url": _cover_url,
+                "album_path": album_path,
+                "album_data": album if album else None,
+                "cover_data": cover_data,
+                "lidarr_album_path": lidarr_album_path,
+            })
+        else:
+            last_failed_result.update({
+                "failed_tracks": [], "album_id": None, "album_title": "",
+                "artist_name": "", "cover_url": "", "album_path": "",
+                "album_data": None, "cover_data": None, "lidarr_album_path": "",
+            })
+
         with queue_lock:
             download_history.append(
                 {
@@ -1130,20 +1280,94 @@ def api_config():
             return jsonify({"success": False, "message": "Too many requests"}), 429
         current = load_config()
         incoming = request.json or {}
-        ALLOWED_CONFIG_KEYS = {
-            "scheduler_interval", "telegram_bot_token", "telegram_chat_id",
-            "telegram_enabled", "telegram_log_types", "download_path",
-            "lidarr_path", "forbidden_words", "duration_tolerance",
-            "scheduler_enabled", "scheduler_auto_download",
-            "xml_metadata_enabled", "yt_cookies_file", "yt_force_ipv4",
-            "yt_player_client", "yt_retries", "yt_fragment_retries",
-            "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
-        }
         for key, value in incoming.items():
             if key in ALLOWED_CONFIG_KEYS:
                 current[key] = value
         save_config(current)
         return jsonify({"success": True})
+
+
+@app.route("/api/config/export")
+def api_config_export():
+    config = load_config()
+    config.pop("path_conflict", None)
+    formatted = json.dumps(config, indent=2, ensure_ascii=False)
+    response = Response(formatted, mimetype="application/json")
+    response.headers["Content-Disposition"] = "attachment; filename=config.json"
+    return response
+
+
+@app.route("/api/config/import", methods=["POST"])
+def api_config_import():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(f"config_import:{client_ip}", window=10, max_requests=2):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+    if "file" in request.files:
+        file = request.files["file"]
+        try:
+            content = file.read().decode("utf-8")
+            incoming = json.loads(content)
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            return jsonify({"success": False, "message": f"Invalid JSON: {e}"}), 400
+    elif request.is_json:
+        incoming = request.json
+    else:
+        return jsonify({"success": False, "message": "No config data provided"}), 400
+    if not isinstance(incoming, dict):
+        return jsonify({"success": False, "message": "Config must be a JSON object"}), 400
+    current = load_config()
+    applied_keys = []
+    skipped_keys = []
+    for key, value in incoming.items():
+        if key in ALLOWED_CONFIG_KEYS:
+            current[key] = value
+            applied_keys.append(key)
+        else:
+            skipped_keys.append(key)
+    save_config(current)
+    return jsonify({
+        "success": True,
+        "applied": len(applied_keys),
+        "skipped": len(skipped_keys),
+        "message": f"Imported {len(applied_keys)} settings. {len(skipped_keys)} keys skipped.",
+    })
+
+
+@app.route("/api/ytdlp/version")
+def api_ytdlp_version():
+    return jsonify({"version": get_ytdlp_version()})
+
+
+@app.route("/api/ytdlp/update", methods=["POST"])
+def api_ytdlp_update():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(f"ytdlp_update:{client_ip}", window=60, max_requests=1):
+        return jsonify({"success": False, "message": "Update already in progress or rate limited"}), 429
+    old_version = get_ytdlp_version()
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["pip", "install", "-U", "yt-dlp"],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode == 0:
+            import importlib
+            importlib.reload(yt_dlp)
+            new_version = get_ytdlp_version()
+            return jsonify({
+                "success": True,
+                "old_version": old_version,
+                "new_version": new_version,
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": result.stderr[-500:] if result.stderr else "Update failed",
+            })
+    except subprocess.TimeoutExpired:
+        return jsonify({"success": False, "message": "Update timed out (120s)"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
 
 
 @app.route("/api/missing-albums")
@@ -1184,15 +1408,16 @@ def api_download_stop():
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(f"stop:{client_ip}", window=5, max_requests=3):
         return jsonify({"success": False, "message": "Too many requests"}), 429
-    download_process["stop"] = True
     with queue_lock:
+        download_process["stop"] = True
         download_queue.clear()
     return jsonify({"success": True})
 
 
 @app.route("/api/download/status")
 def api_download_status():
-    return jsonify(download_process)
+    with queue_lock:
+        return jsonify(dict(download_process))
 
 
 @app.route("/api/download/stream")
@@ -1210,10 +1435,16 @@ def api_download_stream():
                     for album_id in download_queue:
                         album = get_album_cached(album_id)
                         if "error" not in album:
+                            cover_url = ""
+                            for img in album.get("images", []):
+                                if img.get("coverType") == "cover":
+                                    cover_url = img.get("remoteUrl", "")
+                                    break
                             queue_data.append({
                                 "id": album_id,
                                 "title": album.get("title", ""),
                                 "artist": album.get("artist", {}).get("artistName", ""),
+                                "cover_url": cover_url,
                             })
                 data = {
                     "status": dict(download_process),
@@ -1356,6 +1587,15 @@ def api_clear_history():
     return jsonify({"success": True})
 
 
+@app.route("/api/logs/size", methods=["GET"])
+def api_logs_size():
+    try:
+        size = os.path.getsize(LOGS_FILE)
+    except OSError:
+        size = 0
+    return jsonify({"size": size, "formatted": format_bytes(size)})
+
+
 @app.route("/api/logs/clear", methods=["POST"])
 def api_clear_logs():
     with queue_lock:
@@ -1373,6 +1613,230 @@ def api_dismiss_log(log_id):
                 save_logs()
                 return jsonify({"success": True})
     return jsonify({"success": False, "error": "Log not found"}), 404
+
+
+@app.route("/api/download/failed")
+def api_download_failed():
+    return jsonify({
+        "failed_tracks": last_failed_result.get("failed_tracks", []),
+        "album_id": last_failed_result.get("album_id"),
+        "album_title": last_failed_result.get("album_title", ""),
+        "artist_name": last_failed_result.get("artist_name", ""),
+        "cover_url": last_failed_result.get("cover_url", ""),
+    })
+
+
+@app.route("/api/youtube/search", methods=["POST"])
+def api_youtube_search():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(f"yt_search:{client_ip}", window=3, max_requests=5):
+        return jsonify({"results": [], "error": "Too many requests"}), 429
+    query = (request.json or {}).get("query", "").strip()
+    if not query:
+        return jsonify({"results": []})
+    config = load_config()
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+        "noplaylist": True,
+    }
+    cookies_path = (config.get("yt_cookies_file") or "").strip()
+    if cookies_path and os.path.exists(cookies_path):
+        ydl_opts["cookiefile"] = cookies_path
+    if config.get("yt_force_ipv4", True):
+        ydl_opts["source_address"] = "0.0.0.0"
+    pc = config.get("yt_player_client", "android")
+    if pc:
+        ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            results = ydl.extract_info(f"ytsearch10:{query}", download=False)
+            items = []
+            for entry in results.get("entries", []):
+                items.append({
+                    "title": entry.get("title", ""),
+                    "url": entry.get("url", ""),
+                    "duration": entry.get("duration", 0),
+                    "channel": entry.get("channel", "") or entry.get("uploader", "") or "",
+                    "thumbnail": entry.get("thumbnail", ""),
+                })
+            return jsonify({"results": items})
+    except Exception as e:
+        return jsonify({"results": [], "error": str(e)[:200]}), 500
+
+
+@app.route("/api/download/manual", methods=["POST"])
+def api_download_manual():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(f"manual_dl:{client_ip}", window=5, max_requests=3):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+
+    data = request.json or {}
+    youtube_url = data.get("youtube_url", "").strip()
+    track_title = data.get("track_title", "").strip()
+    track_num = data.get("track_num", 0)
+
+    if not youtube_url or not track_title:
+        return jsonify({"success": False, "message": "Missing required fields"}), 400
+
+    if not youtube_url.startswith("http"):
+        if not re.match(r'^[a-zA-Z0-9_-]{11}$', youtube_url):
+            return jsonify({"success": False, "message": "Invalid YouTube video ID"}), 400
+        youtube_url = f"https://www.youtube.com/watch?v={youtube_url}"
+    else:
+        try:
+            parsed = urllib.parse.urlparse(youtube_url)
+            allowed_hosts = {
+                "youtube.com", "www.youtube.com", "m.youtube.com",
+                "youtu.be", "www.youtu.be",
+                "music.youtube.com",
+            }
+            if parsed.hostname not in allowed_hosts:
+                return jsonify({"success": False, "message": "Only YouTube URLs are allowed"}), 400
+        except Exception:
+            return jsonify({"success": False, "message": "Invalid URL"}), 400
+
+    album_data = last_failed_result.get("album_data")
+    if not album_data:
+        return jsonify({"success": False, "message": "No album context available. Please re-download the album first."}), 400
+
+    dl_album_path = last_failed_result.get("album_path", "")
+    lidarr_album_path_val = last_failed_result.get("lidarr_album_path", "")
+    target_path = lidarr_album_path_val if lidarr_album_path_val and os.path.isdir(lidarr_album_path_val) else dl_album_path
+
+    if not target_path:
+        return jsonify({"success": False, "message": "No album path available"}), 400
+
+    # Path traversal protection: ensure target_path is within DOWNLOAD_DIR or lidarr_path
+    config = load_config()
+    lidarr_path = config.get("lidarr_path", "")
+    allowed_bases = [os.path.realpath(DOWNLOAD_DIR)] if DOWNLOAD_DIR else []
+    if lidarr_path:
+        allowed_bases.append(os.path.realpath(lidarr_path))
+    real_target = os.path.realpath(target_path)
+    if not any(real_target.startswith(base + os.sep) or real_target == base for base in allowed_bases):
+        return jsonify({"success": False, "message": "Invalid target path"}), 400
+
+    os.makedirs(target_path, exist_ok=True)
+
+    cover_data_stored = last_failed_result.get("cover_data")
+    sanitized_track = sanitize_filename(track_title)
+    temp_file = os.path.join(target_path, f"temp_manual_{uuid.uuid4().hex[:8]}")
+    final_file = os.path.join(target_path, f"{int(track_num):02d} - {sanitized_track}.mp3")
+
+    config = load_config()
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "format": "bestaudio/best",
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "320",
+        }],
+        "outtmpl": temp_file,
+        "noplaylist": True,
+    }
+    cookies_path = (config.get("yt_cookies_file") or "").strip()
+    if cookies_path and os.path.exists(cookies_path):
+        ydl_opts["cookiefile"] = cookies_path
+    if config.get("yt_force_ipv4", True):
+        ydl_opts["source_address"] = "0.0.0.0"
+    pc = config.get("yt_player_client", "android")
+    if pc:
+        ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([youtube_url])
+
+        actual_file = temp_file + ".mp3"
+        if not os.path.exists(actual_file):
+            return jsonify({"success": False, "message": "Download failed — file not created"}), 500
+
+        track_info = {"title": track_title, "trackNumber": track_num}
+        for t in album_data.get("tracks", []):
+            if t.get("title", "").lower() == track_title.lower():
+                track_info = t
+                break
+
+        tag_mp3(actual_file, track_info, album_data, cover_data_stored)
+
+        if config.get("xml_metadata_enabled", True):
+            create_xml_metadata(
+                target_path,
+                album_data["artist"]["artistName"],
+                album_data["title"],
+                int(track_num),
+                track_title,
+                album_data.get("foreignAlbumId", ""),
+                album_data["artist"].get("foreignArtistId", ""),
+            )
+
+        try:
+            manual_file_size = os.path.getsize(actual_file)
+        except OSError:
+            manual_file_size = 0
+        shutil.move(actual_file, final_file)
+        set_permissions(final_file)
+
+        last_failed_result["failed_tracks"] = [
+            t for t in last_failed_result.get("failed_tracks", [])
+            if t.get("title", "").lower() != track_title.lower()
+        ]
+
+        artist_id = album_data.get("artist", {}).get("id")
+        if artist_id:
+            lidarr_request(
+                "command", method="POST",
+                data={"name": "RefreshArtist", "artistId": artist_id},
+            )
+
+        logger.info(f"✅ Manual download successful: {track_title}")
+
+        album_title = last_failed_result.get("album_title", "")
+        artist_name = last_failed_result.get("artist_name", "")
+        album_id = last_failed_result.get("album_id")
+
+        add_download_log(
+            log_type="manual_download",
+            album_id=album_id or 0,
+            album_title=album_title or "Unknown Album",
+            artist_name=artist_name or "Unknown Artist",
+            details=f"Manually downloaded track: {track_title} (from YouTube)",
+            failed_tracks=[],
+            total_file_size=manual_file_size,
+        )
+
+        with queue_lock:
+            download_history.append(
+                {
+                    "album_id": album_id,
+                    "album_title": album_title or "Unknown Album",
+                    "artist_name": artist_name or "Unknown Artist",
+                    "success": True,
+                    "partial": False,
+                    "manual": True,
+                    "track_title": track_title,
+                    "timestamp": time.time(),
+                }
+            )
+            download_history[:] = download_history[-25:]
+            save_history()
+
+        return jsonify({"success": True, "message": f"Track '{track_title}' downloaded successfully"})
+
+    except Exception as e:
+        logger.warning(f"⚠️ Manual download failed for '{track_title}': {e}")
+        for ext in [".mp3", ".webm", ".m4a", ".part"]:
+            tmp = temp_file + ext
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+        return jsonify({"success": False, "message": str(e)[:200]}), 500
 
 
 def scheduled_check():
@@ -1404,9 +1868,10 @@ def scheduled_check():
             logger.info(
                 f"🤖 Scheduler: Found {len(new_albums)} new missing albums, adding to queue..."
             )
-            send_telegram(
+            send_notifications(
                 f"🚀 Scheduler: Adding {len(new_albums)} new missing albums to queue...",
                 log_type="download_started",
+                embed_data={"title": "Scheduler", "description": f"Adding {len(new_albums)} new missing albums to queue", "color": 0x3498db},
             )
             with queue_lock:
                 for album in new_albums:
@@ -1415,9 +1880,10 @@ def scheduled_check():
             logger.info(
                 f"🔍 Scheduler: Found {len(new_albums)} missing albums (Auto-Download disabled)"
             )
-            send_telegram(
+            send_notifications(
                 f"🔍 Scheduler: Found {len(new_albums)} missing albums (Auto-DL Disabled)",
                 log_type="download_started",
+                embed_data={"title": "Scheduler", "description": f"Found {len(new_albums)} missing albums (Auto-DL Disabled)", "color": 0xe67e22},
             )
 
 
