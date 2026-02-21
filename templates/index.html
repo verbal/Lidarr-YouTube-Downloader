@@ -1605,6 +1605,424 @@
             0% { background-position: 200% 0; }
             100% { background-position: -200% 0; }
         }
+
+        .failed-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .failed-overlay.active {
+            display: flex;
+        }
+
+        .failed-overlay-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        .failed-overlay-content {
+            position: relative;
+            background: var(--surface);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            width: 100%;
+            max-width: 700px;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
+            animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .failed-overlay-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-glass);
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            z-index: 1;
+            border-radius: var(--radius) var(--radius) 0 0;
+        }
+
+        .failed-overlay-header img {
+            width: 52px;
+            height: 52px;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+
+        .failed-overlay-header .fo-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .failed-overlay-header .fo-info h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .failed-overlay-header .fo-info p {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            margin-top: 0.15rem;
+        }
+
+        .failed-overlay-close {
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            font-size: 1.3rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 8px;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .failed-overlay-close:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        .failed-overlay-body {
+            padding: 1.5rem;
+        }
+
+        .failed-overlay-subtitle {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .failed-track-item {
+            background: var(--bg);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border: 1px solid var(--border);
+            transition: all 0.3s;
+        }
+
+        .failed-track-item.resolved {
+            border-color: var(--primary);
+            background: rgba(16, 185, 129, 0.05);
+        }
+
+        .failed-track-header {
+            margin-bottom: 0.75rem;
+        }
+
+        .failed-track-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .failed-track-reason {
+            font-size: 0.8rem;
+            color: #ef4444;
+            margin-top: 0.25rem;
+            padding-left: 1.5rem;
+        }
+
+        .failed-track-success {
+            color: var(--primary);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .failed-track-inputs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .failed-track-inputs input {
+            flex: 1;
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            color: var(--text);
+            font-size: 0.85rem;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .failed-track-inputs input:focus {
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+
+        .ft-btn {
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            border: none;
+            background: var(--primary);
+            color: white;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            white-space: nowrap;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .ft-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .ft-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .failed-track-separator {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin: 0.5rem 0;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
+
+        .failed-track-separator::before,
+        .failed-track-separator::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .ft-search-results {
+            display: none;
+            margin-top: 0.75rem;
+            max-height: 260px;
+            overflow-y: auto;
+            border-radius: 8px;
+        }
+
+        .ft-search-results.active {
+            display: block;
+        }
+
+        .ft-result-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.6rem;
+            border-radius: 8px;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .ft-result-item:hover {
+            background: var(--surface-hover);
+            border-color: var(--border-glass);
+        }
+
+        .ft-result-item img {
+            width: 48px;
+            height: 36px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+
+        .ft-result-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .ft-result-title {
+            font-size: 0.85rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .ft-result-meta {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .ft-result-preview {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            cursor: pointer;
+            font-size: 0.7rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .ft-result-preview:hover {
+            background: #ef4444;
+            color: white;
+            border-color: #ef4444;
+            transform: scale(1.1);
+        }
+
+        .ft-result-select {
+            padding: 0.35rem 0.65rem;
+            border-radius: 6px;
+            border: 1px solid var(--primary);
+            background: transparent;
+            color: var(--primary);
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 600;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .ft-result-select:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .ft-video-preview {
+            margin-top: 0.75rem;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+            background: #000;
+        }
+
+        .ft-video-preview iframe {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border: none;
+            display: block;
+        }
+
+        .ft-preview-close {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            z-index: 2;
+            transition: all 0.2s;
+        }
+
+        .ft-preview-close:hover {
+            background: #ef4444;
+            transform: scale(1.1);
+        }
+
+        .failed-tracks-btn {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            height: 44px;
+            padding: 0 1.2rem;
+            background: linear-gradient(135deg, #f59e0b, #ef4444);
+            background-size: 200% 200%;
+            border: none;
+            border-radius: 22px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: white;
+            box-shadow: 0 8px 24px rgba(239, 68, 68, 0.35);
+            z-index: 99;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            animation: gradient-shift 3s ease infinite;
+        }
+
+        .failed-tracks-btn.active {
+            display: inline-flex;
+        }
+
+        .failed-tracks-btn:hover {
+            transform: translateX(-50%) scale(1.05);
+            box-shadow: 0 12px 32px rgba(239, 68, 68, 0.5);
+        }
+
+        .failed-tracks-btn:active {
+            transform: translateX(-50%) scale(0.97);
+        }
+
+        .ft-loading {
+            text-align: center;
+            padding: 0.75rem;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+        }
+
+        @media (max-width: 768px) {
+            .failed-overlay {
+                padding: 1rem;
+            }
+
+            .failed-overlay-content {
+                max-height: 90vh;
+            }
+
+            .failed-overlay-header {
+                padding: 1rem;
+            }
+
+            .failed-overlay-body {
+                padding: 1rem;
+            }
+
+            .failed-track-inputs {
+                flex-direction: column;
+            }
+
+            .failed-track-inputs input {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 
@@ -1766,8 +2184,36 @@
         <span class="minimized-badge" id="minimizedBadge">0/0</span>
     </button>
 
+    <div class="failed-overlay" id="failedOverlay">
+        <div class="failed-overlay-backdrop" onclick="closeFailedOverlay()"></div>
+        <div class="failed-overlay-content">
+            <div class="failed-overlay-header">
+                <img id="failedAlbumCover" src="" alt="" style="display:none;">
+                <div class="fo-info">
+                    <h3 id="failedAlbumTitle">Album Title</h3>
+                    <p id="failedArtistName">Artist Name</p>
+                </div>
+                <button class="failed-overlay-close" onclick="closeFailedOverlay()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="failed-overlay-body">
+                <div class="failed-overlay-subtitle">
+                    <i class="fa-solid fa-triangle-exclamation" style="color: #f59e0b;"></i>
+                    <span id="failedSubtitle">Some tracks failed to download.</span>
+                </div>
+                <div id="failedTracksList"></div>
+            </div>
+        </div>
+    </div>
+
+    <button class="failed-tracks-btn" id="failedTracksBtn" onclick="reopenFailedOverlay()">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span id="failedTracksBtnText">0 Failed</span>
+    </button>
+
     <footer>
-        <div>Made with love ❤️ - {{ APP_VERSION }}</div>
+        <div>Made with love ❤️ • {{ APP_VERSION }}</div>
         <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
     </footer>
 
@@ -1781,12 +2227,23 @@
         let displayedCount = 0;
         let currentFiltered = [];
         let queuedAlbumIds = new Set();
+        let wasDownloadActive = false;
+        let failedTracksData = [];
 
         function escapeHtml(str) {
             if (!str) return '';
             const div = document.createElement('div');
             div.appendChild(document.createTextNode(str));
             return div.innerHTML;
+        }
+
+        function sanitizeUrl(url) {
+            if (!url) return '';
+            try {
+                const u = new URL(url);
+                if (u.protocol === 'https:' || u.protocol === 'http:') return u.href;
+            } catch (_) {}
+            return '';
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -1823,6 +2280,13 @@
             document.getElementById('view' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('active');
 
             applyFilters();
+        }
+
+        function getEmptyMessage() {
+            if (allAlbums.length === 0) {
+                return '<div style="padding:2.5rem 1rem;"><div style="font-size:2.5rem;margin-bottom:0.75rem;">🎉🎶</div><div style="font-size:1.15rem;font-weight:600;margin-bottom:0.5rem;">Your library is complete!</div><div style="color:var(--text-dim);font-size:0.9rem;">All albums are downloaded and ready to listen. Sit back and enjoy the music! 🎧✨</div></div>';
+            }
+            return '<div style="padding:2rem 1rem;"><div style="font-size:2rem;margin-bottom:0.5rem;">🔍</div><div style="color:var(--text-dim);font-size:0.9rem;">No albums match your search. Try different keywords! 🎵</div></div>';
         }
 
         function applyFilters() {
@@ -1930,7 +2394,7 @@
             container.innerHTML = '';
 
             if (currentFiltered.length === 0) {
-                container.innerHTML = '<div style="grid-column:1/-1;text-align:center">No albums match your criteria.</div>';
+                container.innerHTML = `<div style="grid-column:1/-1;text-align:center">${getEmptyMessage()}</div>`;
                 return;
             }
 
@@ -1954,7 +2418,7 @@
             container.innerHTML = '';
 
             if (currentFiltered.length === 0) {
-                container.innerHTML = '<div style="text-align:center">No albums match your criteria.</div>';
+                container.innerHTML = `<div style="text-align:center">${getEmptyMessage()}</div>`;
                 return;
             }
 
@@ -2006,7 +2470,7 @@
             container.className = 'table-view';
 
             if (currentFiltered.length === 0) {
-                container.innerHTML = '<div style="text-align:center">No albums match your criteria.</div>';
+                container.innerHTML = `<div style="text-align:center">${getEmptyMessage()}</div>`;
                 return;
             }
 
@@ -2264,6 +2728,17 @@
 
         function handleProgressUpdate(data, queue) {
             if (!data.active) {
+                /* If there are still items in the queue, we're between albums —
+                   keep the UI stable to prevent flicker */
+                if (queue && queue.length > 0) {
+                    queuedAlbumIds = new Set(queue.map(q => q.id));
+                    updateQueueButtons();
+                    return;
+                }
+                if (wasDownloadActive) {
+                    wasDownloadActive = false;
+                    checkFailedTracks();
+                }
                 isProgressMinimized = true;
                 document.getElementById('progressContainer').classList.remove('active');
                 document.getElementById('progressMinimizedBtn').classList.remove('active');
@@ -2279,6 +2754,11 @@
                 return;
             }
 
+            wasDownloadActive = true;
+            /* Hide failed-tracks reopen button during a new download */
+            document.getElementById('failedTracksBtn').classList.remove('active');
+            document.getElementById('failedOverlay').classList.remove('active');
+
             if (!isProgressMinimized) {
                 document.getElementById('progressContainer').classList.add('active');
                 document.getElementById('progressMinimizedBtn').classList.remove('active');
@@ -2292,8 +2772,9 @@
             if (data.current_track_title) document.getElementById('currentTrackTitle').textContent = data.current_track_title;
 
             const coverEl = document.getElementById('progressCover');
-            if (data.cover_url) {
-                coverEl.src = data.cover_url;
+            const safeCoverUrl = sanitizeUrl(data.cover_url);
+            if (safeCoverUrl) {
+                coverEl.src = safeCoverUrl;
                 coverEl.classList.add('active');
             } else {
                 coverEl.classList.remove('active');
@@ -2400,6 +2881,270 @@
             if (confirm('Are you sure you want to stop the current download?')) {
                 await fetch('/api/download/stop', { method: 'POST' });
                 hideProgress();
+            }
+        }
+
+        async function checkFailedTracks() {
+            try {
+                const res = await fetch('/api/download/failed');
+                const data = await res.json();
+                if (data.failed_tracks && data.failed_tracks.length > 0) {
+                    showFailedTracksOverlay(data);
+                }
+            } catch (e) {
+                console.error('Failed to check failed tracks:', e);
+            }
+        }
+
+        function showFailedTracksOverlay(data) {
+            failedTracksData = data.failed_tracks;
+            document.getElementById('failedAlbumTitle').textContent = data.album_title || 'Unknown Album';
+            document.getElementById('failedArtistName').textContent = data.artist_name || 'Unknown Artist';
+
+            const coverEl = document.getElementById('failedAlbumCover');
+            const safeFailedCover = sanitizeUrl(data.cover_url);
+            if (safeFailedCover) {
+                coverEl.src = safeFailedCover;
+                coverEl.style.display = 'block';
+            } else {
+                coverEl.style.display = 'none';
+            }
+
+            const count = data.failed_tracks.length;
+            document.getElementById('failedSubtitle').textContent =
+                `${count} track${count > 1 ? 's' : ''} failed to download. Search YouTube or paste a link to retry.`;
+
+            const list = document.getElementById('failedTracksList');
+            list.innerHTML = data.failed_tracks.map((track, i) => `
+                <div class="failed-track-item" id="failedTrack${i}">
+                    <div class="failed-track-header">
+                        <div class="failed-track-title">
+                            <i class="fa-solid fa-music" style="color: var(--primary);"></i>
+                            ${escapeHtml(track.title)}
+                        </div>
+                        <div class="failed-track-reason">${escapeHtml(track.reason)}</div>
+                    </div>
+                    <div class="failed-track-inputs" id="failedSearchRow${i}">
+                        <input type="text" id="failedSearch${i}" placeholder="Search YouTube..."
+                            value="${escapeHtml((data.artist_name || '') + ' ' + track.title)}"
+                            onkeydown="if(event.key==='Enter')searchFailedTrack(${i})">
+                        <button class="ft-btn" onclick="searchFailedTrack(${i})">
+                            <i class="fa-solid fa-search"></i> Search
+                        </button>
+                    </div>
+                    <div class="failed-track-separator">or paste a YouTube URL</div>
+                    <div class="failed-track-inputs" id="failedUrlRow${i}">
+                        <input type="text" id="failedUrl${i}" placeholder="https://youtube.com/watch?v=..."
+                            onkeydown="if(event.key==='Enter')manualDownloadTrack(${i})">
+                        <button class="ft-btn" onclick="manualDownloadTrack(${i})">
+                            <i class="fa-solid fa-download"></i> Download
+                        </button>
+                    </div>
+                    <div class="ft-search-results" id="searchResults${i}"></div>
+                    <div class="ft-video-preview" id="videoPreview${i}" style="display:none;"></div>
+                </div>
+            `).join('');
+
+            document.getElementById('failedOverlay').classList.add('active');
+
+            /* Show reopen button & update count */
+            const failedBtn = document.getElementById('failedTracksBtn');
+            document.getElementById('failedTracksBtnText').textContent =
+                count + ' Failed Track' + (count > 1 ? 's' : '');
+            failedBtn.classList.add('active');
+        }
+
+        function closeFailedOverlay() {
+            document.getElementById('failedOverlay').classList.remove('active');
+            /* Close any open video previews */
+            document.querySelectorAll('.ft-video-preview').forEach(el => {
+                el.style.display = 'none';
+                el.innerHTML = '';
+            });
+        }
+
+        async function searchFailedTrack(index) {
+            const query = document.getElementById(`failedSearch${index}`).value.trim();
+            if (!query) return;
+
+            const resultsDiv = document.getElementById(`searchResults${index}`);
+            resultsDiv.classList.add('active');
+            resultsDiv.innerHTML = '<div class="ft-loading"><i class="fa-solid fa-spinner fa-spin"></i> Searching YouTube...</div>';
+
+            try {
+                const res = await fetch('/api/youtube/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+                const data = await res.json();
+
+                if (data.results && data.results.length > 0) {
+                    resultsDiv.innerHTML = data.results.map(r => {
+                        const dur = r.duration ? `${Math.floor(r.duration / 60)}:${(r.duration % 60).toString().padStart(2, '0')}` : '';
+                        const thumbHtml = r.thumbnail
+                            ? `<img src="${r.thumbnail}" alt="">`
+                            : `<div style="width:48px;height:36px;background:var(--surface);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fa-brands fa-youtube" style="color:var(--text-dim);"></i></div>`;
+                        return `
+                            <div class="ft-result-item" data-url="${escapeHtml(r.url)}">
+                                ${thumbHtml}
+                                <div class="ft-result-info">
+                                    <div class="ft-result-title">${escapeHtml(r.title)}</div>
+                                    <div class="ft-result-meta">${escapeHtml(r.channel)}${dur ? ' &bull; ' + dur : ''}</div>
+                                </div>
+                                <button class="ft-result-preview" onclick="event.stopPropagation();previewVideo(${index}, this.parentElement.dataset.url)" title="Preview">
+                                    <i class="fa-solid fa-play"></i>
+                                </button>
+                                <button class="ft-result-select" onclick="selectSearchResult(${index}, this.parentElement)">Select</button>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    resultsDiv.innerHTML = '<div class="ft-loading">No results found. Try a different search.</div>';
+                }
+            } catch (e) {
+                resultsDiv.innerHTML = '<div class="ft-loading" style="color:#ef4444;">Search failed. Please try again.</div>';
+            }
+        }
+
+        function selectSearchResult(index, el) {
+            const url = el.dataset.url;
+            document.getElementById(`failedUrl${index}`).value = url;
+            document.getElementById(`searchResults${index}`).classList.remove('active');
+            /* Close video preview if open */
+            const preview = document.getElementById(`videoPreview${index}`);
+            if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
+        }
+
+        async function manualDownloadTrack(index) {
+            const track = failedTracksData[index];
+            if (!track) return;
+
+            const url = document.getElementById(`failedUrl${index}`).value.trim();
+            if (!url) {
+                document.getElementById(`failedUrl${index}`).style.borderColor = '#ef4444';
+                setTimeout(() => document.getElementById(`failedUrl${index}`).style.borderColor = '', 2000);
+                return;
+            }
+
+            const item = document.getElementById(`failedTrack${index}`);
+            const inputElements = item.querySelectorAll('.failed-track-inputs, .failed-track-separator, .ft-search-results, .ft-video-preview');
+            inputElements.forEach(el => { el.style.display = 'none'; if (el.classList.contains('ft-video-preview')) el.innerHTML = ''; });
+
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'ft-loading';
+            loadingDiv.id = `failedLoading${index}`;
+            loadingDiv.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading and tagging...';
+            item.querySelector('.failed-track-header').after(loadingDiv);
+
+            try {
+                const res = await fetch('/api/download/manual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        youtube_url: url,
+                        track_title: track.title,
+                        track_num: track.track_num,
+                    })
+                });
+                const data = await res.json();
+
+                loadingDiv.remove();
+
+                if (data.success) {
+                    item.classList.add('resolved');
+                    item.querySelector('.failed-track-reason').textContent = '';
+                    const successDiv = document.createElement('div');
+                    successDiv.className = 'failed-track-success';
+                    successDiv.innerHTML = '<i class="fa-solid fa-circle-check"></i> Downloaded successfully';
+                    item.querySelector('.failed-track-header').appendChild(successDiv);
+                    checkAllResolved();
+                } else {
+                    inputElements.forEach(el => el.style.display = '');
+                    const errDiv = document.createElement('div');
+                    errDiv.style.cssText = 'color: #ef4444; font-size: 0.85rem; margin: 0.5rem 0; padding-left: 1.5rem;';
+                    errDiv.textContent = data.message || 'Download failed';
+                    item.querySelector('.failed-track-header').after(errDiv);
+                    setTimeout(() => errDiv.remove(), 6000);
+                }
+            } catch (e) {
+                loadingDiv.remove();
+                inputElements.forEach(el => el.style.display = '');
+            }
+        }
+
+        function extractYouTubeId(url) {
+            try {
+                const u = new URL(url);
+                if (u.hostname.includes('youtu.be')) return u.pathname.slice(1).split('/')[0];
+                if (u.searchParams.has('v')) return u.searchParams.get('v');
+                const m = u.pathname.match(/\/embed\/([^/?]+)/);
+                if (m) return m[1];
+            } catch (_) {}
+            return null;
+        }
+
+        function previewVideo(index, url) {
+            const container = document.getElementById(`videoPreview${index}`);
+            if (!container) return;
+
+            /* Toggle off if same video already shown */
+            if (container.style.display !== 'none' && container.dataset.currentUrl === url) {
+                container.style.display = 'none';
+                container.innerHTML = '';
+                container.dataset.currentUrl = '';
+                return;
+            }
+
+            const videoId = extractYouTubeId(url);
+            if (!videoId) {
+                container.innerHTML = '<div style="color:#ef4444;padding:0.75rem;text-align:center;font-size:0.85rem;">Unable to load preview</div>';
+                container.style.display = 'block';
+                return;
+            }
+
+            container.dataset.currentUrl = url;
+            container.innerHTML = `
+                <button class="ft-preview-close" onclick="this.parentElement.style.display='none';this.parentElement.innerHTML='';" title="Close preview">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+                <iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0"
+                    allow="autoplay; encrypted-media" allowfullscreen></iframe>
+            `;
+            container.style.display = 'block';
+
+            /* Scroll the preview into view */
+            container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function reopenFailedOverlay() {
+            document.getElementById('failedOverlay').classList.add('active');
+        }
+
+        function checkAllResolved() {
+            const items = document.querySelectorAll('.failed-track-item');
+            const resolved = document.querySelectorAll('.failed-track-item.resolved');
+            if (items.length > 0 && items.length === resolved.length) {
+                /* All tracks resolved — update button */
+                const btn = document.getElementById('failedTracksBtn');
+                btn.innerHTML = '<i class="fa-solid fa-circle-check"></i> <span>All Resolved!</span>';
+                btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                btn.style.boxShadow = '0 8px 24px rgba(16, 185, 129, 0.35)';
+                /* Auto-close overlay after a brief pause */
+                setTimeout(() => {
+                    document.getElementById('failedOverlay').classList.remove('active');
+                }, 1500);
+                /* Hide button after a few seconds */
+                setTimeout(() => {
+                    btn.classList.remove('active');
+                    btn.style.background = '';
+                    btn.style.boxShadow = '';
+                }, 5000);
+            } else {
+                /* Update remaining count */
+                const remaining = items.length - resolved.length;
+                document.getElementById('failedTracksBtnText').textContent =
+                    remaining + ' Failed Track' + (remaining > 1 ? 's' : '');
             }
         }
 
