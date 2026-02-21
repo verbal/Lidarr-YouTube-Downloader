@@ -22,7 +22,7 @@ Automatically download missing albums with perfect metadata tagging
 - 📦 **Direct import** to your Lidarr library
 - 🌓 **Modern UI** with dark/light mode
 - 🎚️ **Configurable filters** - customize forbidden words
-- 🔔 **Telegram notifications**
+- 🔔 **Telegram and Discord notifications**
 - 🐳 **Docker ready** - deploy in seconds
 
 ---
