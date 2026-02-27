@@ -1,14 +1,13 @@
-FROM python:3.14-slim
+FROM python:alpine
 
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    gosu \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ffmpeg gosu ca-certificates
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
@@ -26,5 +25,6 @@ ENV SCHEDULER_AUTO_DOWNLOAD="false"
 ENV PUID=0
 ENV PGID=0
 ENV UMASK=002
+ENV DISCORD_ENABLED="false"
 
 ENTRYPOINT ["/app/entrypoint.sh"]

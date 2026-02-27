@@ -6,13 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Settings - Lidarr YouTube Downloader</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1384/1384060.png">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         :root {
             --bg: #09090b;
             --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.05) 0%, transparent 50%);
             --surface: #18181b;
             --surface-glass: rgba(24, 24, 27, 0.7);
+            --surface-hover: #27272a;
             --text: #fafafa;
             --text-dim: #a1a1aa;
             --primary: #10b981;
@@ -28,6 +29,7 @@
             --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.03) 0%, transparent 50%);
             --surface: #ffffff;
             --surface-glass: rgba(255, 255, 255, 0.7);
+            --surface-hover: #f4f4f5;
             --text: #18181b;
             --text-dim: #71717a;
             --border: #e4e4e7;
@@ -51,18 +53,18 @@
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            overflow-x: hidden;
         }
 
         header {
             background: var(--surface-glass);
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            backdrop-filter: blur(30px) saturate(200%);
+            -webkit-backdrop-filter: blur(30px) saturate(200%);
             border-bottom: 1px solid var(--border-glass);
             position: sticky;
             top: 0;
             z-index: 50;
-            padding: 1rem 0;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+            padding: 0;
         }
 
         .nav-container {
@@ -72,86 +74,161 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            height: 64px;
         }
 
         .logo {
             font-weight: 800;
-            font-size: 1.2rem;
+            font-size: 1.25rem;
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            gap: 0.6rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0, #0891b2);
+            background-size: 200% 200%;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            cursor: pointer;
+            animation: gradient-shift 4s ease infinite;
+            letter-spacing: -0.02em;
+        }
+
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .logo-icon svg {
+            width: 16px;
+            height: 16px;
         }
 
         .nav-links {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.25rem;
             align-items: center;
         }
 
         .nav-links a {
-            color: var(--text);
+            color: var(--text-dim);
             text-decoration: none;
             font-weight: 500;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            transition: all 0.3s ease;
+            font-size: 0.9rem;
+            padding: 0.5rem 0.9rem;
+            border-radius: 10px;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
             position: relative;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
         }
 
         .nav-links a:hover {
+            color: var(--text);
+            background: var(--surface-hover);
+        }
+
+        .nav-links a.active {
             color: var(--primary);
-            background: var(--surface-glass);
-            backdrop-filter: blur(10px);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .nav-badge {
+            background: linear-gradient(135deg, #ef4444, #f87171);
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 700;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 5px;
+            line-height: 1;
+            animation: badgePop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .nav-badge.active {
+            display: inline-flex;
+        }
+
+        @keyframes badgePop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
         }
 
         .nav-links a::after {
             content: '';
             position: absolute;
-            bottom: 0;
+            bottom: 2px;
             left: 50%;
             transform: translateX(-50%) scaleX(0);
-            width: 80%;
+            width: 60%;
             height: 2px;
             background: linear-gradient(90deg, var(--primary), #06d6a0);
-            transition: transform 0.3s ease;
+            border-radius: 1px;
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
-        .nav-links a:hover::after {
+        .nav-links a:hover::after,
+        .nav-links a.active::after {
             transform: translateX(-50%) scaleX(1);
         }
 
         .controls {
             display: flex;
-            gap: 1rem;
+            gap: 0.75rem;
             align-items: center;
         }
 
-        .icon-btn {
+        .theme-toggle {
             background: var(--surface-glass);
             backdrop-filter: blur(10px);
             border: 1px solid var(--border-glass);
             color: var(--text);
             width: 40px;
             height: 40px;
-            border-radius: 50%;
+            border-radius: 12px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 1.1rem;
-            transition: all 0.3s ease;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
         }
 
-        .icon-btn:hover {
+        .theme-toggle:hover {
             background: var(--surface-hover);
             border-color: var(--primary);
             box-shadow: var(--glow);
-            transform: scale(1.05);
+            transform: scale(1.08);
+        }
+
+        .theme-toggle:active {
+            transform: scale(0.92);
+        }
+
+        .theme-toggle i {
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .theme-toggle.spin i {
+            animation: themeSwitch 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes themeSwitch {
+            0% { transform: rotate(0deg) scale(1); opacity: 1; }
+            50% { transform: rotate(180deg) scale(0); opacity: 0; }
+            100% { transform: rotate(360deg) scale(1); opacity: 1; }
         }
 
         .container {
@@ -324,49 +401,161 @@
 
         footer {
             text-align: center;
-            padding: 2rem;
+            padding: 1.5rem 2rem;
             color: var(--text-dim);
             font-size: 0.9rem;
             border-top: 1px solid var(--border-glass);
             background: var(--surface-glass);
             backdrop-filter: blur(20px);
             margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .footer-github {
+            color: var(--text-dim);
+            font-size: 1.3rem;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .footer-github:hover {
+            color: var(--primary);
+            transform: scale(1.15);
+        }
+
+        .toast-container {
+            position: fixed;
+            top: 80px;
+            right: 1.5rem;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            pointer-events: none;
+        }
+
+        .toast {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid var(--border-glass);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            min-width: 320px;
+            max-width: 420px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            pointer-events: auto;
+            animation: toastIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: all 0.3s ease;
+        }
+
+        .toast.toast-out {
+            animation: toastOut 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .toast-icon {
+            font-size: 1.2rem;
+            flex-shrink: 0;
+            margin-top: 0.1rem;
+        }
+
+        .toast-success .toast-icon { color: var(--primary); }
+        .toast-error .toast-icon { color: #ef4444; }
+        .toast-warning .toast-icon { color: #f59e0b; }
+
+        .toast-success { border-left: 3px solid var(--primary); }
+        .toast-error { border-left: 3px solid #ef4444; }
+        .toast-warning { border-left: 3px solid #f59e0b; }
+
+        .toast-body {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .toast-message {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            line-height: 1.4;
+        }
+
+        .toast-close {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 0;
+            flex-shrink: 0;
+            transition: color 0.2s;
+        }
+
+        .toast-close:hover {
+            color: var(--text);
+        }
+
+        .toast-progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), #06d6a0);
+            border-radius: 0 0 12px 12px;
+            animation: toastProgress 4s linear forwards;
+        }
+
+        .toast-success .toast-progress { background: linear-gradient(90deg, var(--primary), #06d6a0); }
+        .toast-error .toast-progress { background: linear-gradient(90deg, #ef4444, #f87171); }
+        .toast-warning .toast-progress { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateX(100px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes toastOut {
+            from { opacity: 1; transform: translateX(0); }
+            to { opacity: 0; transform: translateX(100px); }
+        }
+
+        @keyframes toastProgress {
+            from { width: 100%; }
+            to { width: 0%; }
         }
 
         @media (max-width: 768px) {
             .nav-container {
+                height: auto;
                 flex-wrap: wrap;
-                padding: 1rem;
-                gap: 0.75rem;
+                padding: 0.75rem 1rem;
+                gap: 0.5rem;
             }
 
             .logo {
-                width: 100%;
-                justify-content: center;
                 font-size: 1rem;
-            }
-
-            .logo-link {
-                width: 100%;
-                display: block;
-                text-align: center;
             }
 
             .nav-links {
                 width: 100%;
                 justify-content: center;
                 flex-wrap: wrap;
-                gap: 0.25rem;
+                gap: 0.15rem;
+                order: 3;
             }
 
             .nav-links a {
-                padding: 0.4rem 0.8rem;
-                font-size: 0.85rem;
-            }
-
-            .controls {
-                width: 100%;
-                justify-content: center;
+                padding: 0.35rem 0.7rem;
+                font-size: 0.8rem;
             }
 
             .container {
@@ -381,20 +570,27 @@
 </head>
 
 <body>
+    <div class="toast-container" id="toastContainer"></div>
     <header>
         <div class="nav-container">
-            <a href="/" class="logo-link" style="text-decoration: none;">
-                <div class="logo">🎵 Lidarr YouTube Downloader</div>
+            <a href="/" style="text-decoration: none;">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 32 32" fill="white"><rect x="4" y="18" width="4" height="8" rx="1"/><rect x="10" y="12" width="4" height="14" rx="1"/><rect x="18" y="6" width="4" height="20" rx="1"/><rect x="24" y="14" width="4" height="12" rx="1"/></svg>
+                    </div>
+                    LYD
+                </div>
             </a>
             <div class="nav-links">
                 <a href="/"><i class="fas fa-home"></i> Home</a>
-                <a href="/downloads"><i class="fas fa-download"></i> Downloads</a>
+                <a href="/downloads"><i class="fas fa-download"></i> Downloads <span class="nav-badge" id="queueBadge">0</span></a>
                 <a href="/logs"><i class="fas fa-list"></i> Logs</a>
-                <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
+                <a href="/settings" class="active"><i class="fas fa-cog"></i> Settings</a>
             </div>
             <div class="controls">
-                <button class="icon-btn" onclick="toggleTheme()"><i class="fa-solid fa-moon"
-                        id="themeIcon"></i></button>
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+                    <i class="fa-solid fa-moon" id="themeIcon"></i>
+                </button>
             </div>
         </div>
     </header>
@@ -484,15 +680,6 @@
                         <span>🎤 Karaoke</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="fw_acoustic" value="acoustic" style="width: auto; cursor: pointer;">
-                        <span>🎻 Acoustic</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="fw_instrumental" value="instrumental"
-                            style="width: auto; cursor: pointer;">
-                        <span>🎹 Instrumental</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                         <input type="checkbox" id="fw_slowed" value="slowed" style="width: auto; cursor: pointer;">
                         <span>🐌 Slowed</span>
                     </label>
@@ -501,9 +688,24 @@
                         <span>🌊 Reverb</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="fw_nightcore" value="nightcore"
-                            style="width: auto; cursor: pointer;">
+                        <input type="checkbox" id="fw_nightcore" value="nightcore" style="width: auto; cursor: pointer;">
                         <span>⚡ Nightcore</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_spedup" value="sped up" style="width: auto; cursor: pointer;">
+                        <span>⏩ Sped Up</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_instrumental" value="instrumental" style="width: auto; cursor: pointer;">
+                        <span>🎹 Instrumental</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_acapella" value="acapella" style="width: auto; cursor: pointer;">
+                        <span>🗣️ Acapella</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_tribute" value="tribute" style="width: auto; cursor: pointer;">
+                        <span>🏆 Tribute</span>
                     </label>
                 </div>
             </div>
@@ -514,6 +716,31 @@
                         Recommended: 5-15 seconds.</div>
                 </label>
                 <input type="number" id="durationTolerance" value="10" min="1" max="60">
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
+                <i class="fa-solid fa-download"></i>
+                <h2>yt-dlp Engine</h2>
+            </div>
+            <div style="padding: 1.25rem; background: var(--bg); border-radius: 12px; border: 1px solid var(--border);">
+                <div style="display: flex; align-items: center; gap: 1rem; justify-content: center;">
+                    <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #ef4444, #dc2626); border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <i class="fa-brands fa-youtube" style="color: white; font-size: 1.2rem;"></i>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-weight: 600; font-size: 0.95rem; color: var(--text);">yt-dlp</div>
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 0.25rem;">
+                            <span style="font-family: monospace; font-size: 0.8rem; padding: 0.15rem 0.5rem; background: rgba(16, 185, 129, 0.1); color: var(--primary); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);" id="ytdlpVersion">...</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="text-align: center; margin-top: 1rem;">
+                    <button class="btn" id="ytdlpUpdateBtn" onclick="updateYtdlp()" style="padding: 0.55rem 1.2rem; font-size: 0.85rem; white-space: nowrap; width: auto;">
+                        <i class="fa-solid fa-rotate"></i> Check for Updates
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -559,16 +786,75 @@
                         <span>✅ Import Success / Partial</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="log_import_failed" value="import_failed"
-                            style="width: auto; cursor: pointer;">
-                        <span>❌ Import Failed</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                         <input type="checkbox" id="log_album_error" value="album_error"
                             style="width: auto; cursor: pointer;">
                         <span>❌ Album Error</span>
                     </label>
                 </div>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
+                <i class="fa-brands fa-discord"></i>
+                <h2>Discord Notifications</h2>
+            </div>
+            <div class="input-group">
+                <label>
+                    Webhook URL
+                    <div class="label-description">Your Discord channel webhook URL (Server Settings > Integrations > Webhooks)</div>
+                </label>
+                <input type="text" id="discordWebhook" placeholder="https://discord.com/api/webhooks/...">
+            </div>
+            <div class="input-group">
+                <label>
+                    Notification Filters
+                    <div class="label-description">Choose which events to receive via Discord</div>
+                </label>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-top: 0.5rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="discord_log_download_started" value="download_started" style="width: auto; cursor: pointer;">
+                        <span>🎵 Download Started</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="discord_log_download_outcome" value="download_outcome" style="width: auto; cursor: pointer;">
+                        <span>✅ Download Success / Partial</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="discord_log_import_outcome" value="import_outcome" style="width: auto; cursor: pointer;">
+                        <span>✅ Import Success / Partial</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="discord_log_album_error" value="album_error" style="width: auto; cursor: pointer;">
+                        <span>❌ Album Error</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
+                <i class="fa-solid fa-file-import"></i>
+                <h2>Import / Export Configuration</h2>
+            </div>
+            <div class="input-group">
+                <label>
+                    Export Settings
+                    <div class="label-description">Download your current configuration as a JSON file</div>
+                </label>
+                <button class="btn" onclick="exportConfig()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-download"></i> Export config.json
+                </button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Import Settings
+                    <div class="label-description">Upload a previously exported config.json to restore settings</div>
+                </label>
+                <input type="file" id="configFileInput" accept=".json" style="display: none;" onchange="handleConfigImport(event)">
+                <button class="btn" onclick="document.getElementById('configFileInput').click()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-upload"></i> Import config.json
+                </button>
             </div>
         </div>
 
@@ -612,10 +898,33 @@
     </div>
 
     <footer>
-        Made with love ❤️ <span id="versionDisplay"></span>
+        <div>Made with love ❤️ • {{ APP_VERSION }}</div>
+        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
     </footer>
 
     <script>
+        function showToast(type, title, message, duration = 4000) {
+            const container = document.getElementById('toastContainer');
+            const icons = { success: 'fa-circle-check', error: 'fa-circle-xmark', warning: 'fa-triangle-exclamation' };
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.style.position = 'relative';
+            toast.innerHTML = `
+                <div class="toast-icon"><i class="fa-solid ${icons[type] || icons.success}"></i></div>
+                <div class="toast-body">
+                    <div class="toast-title">${title}</div>
+                    <div class="toast-message">${message}</div>
+                </div>
+                <button class="toast-close" onclick="this.closest('.toast').remove()"><i class="fa-solid fa-xmark"></i></button>
+                <div class="toast-progress" style="animation-duration:${duration}ms"></div>
+            `;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('toast-out');
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const saved = localStorage.getItem('theme') || 'dark';
             if (saved === 'light') {
@@ -623,34 +932,39 @@
                 document.getElementById('themeIcon').className = 'fa-solid fa-sun';
             }
             loadConfig();
-            loadVersion();
+            loadYtdlpVersion();
         });
 
         function toggleTheme() {
-            document.body.classList.toggle('light');
-            const isLight = document.body.classList.contains('light');
-            localStorage.setItem('theme', isLight ? 'light' : 'dark');
-            document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+            const toggle = document.getElementById('themeToggle');
+            toggle.classList.add('spin');
+            setTimeout(() => {
+                document.body.classList.toggle('light');
+                const isLight = document.body.classList.contains('light');
+                localStorage.setItem('theme', isLight ? 'light' : 'dark');
+                document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+            }, 250);
+            setTimeout(() => toggle.classList.remove('spin'), 500);
         }
 
         async function loadConfig() {
             const res = await fetch('/api/config');
             const conf = await res.json();
-            document.getElementById('interval').value = conf.scheduler_interval;
-            document.getElementById('botToken').value = conf.telegram_bot_token;
-            document.getElementById('chatId').value = conf.telegram_chat_id;
+            document.getElementById('interval').value = conf.scheduler_interval || 60;
+            document.getElementById('botToken').value = conf.telegram_bot_token || '';
+            document.getElementById('chatId').value = conf.telegram_chat_id || '';
 
-            // Load telegram log type filters
-            // Load telegram log type filters
+
+
             const logTypes = conf.telegram_log_types || [];
 
-            // Standard mappings
-            ['download_started', 'import_failed', 'album_error'].forEach(type => {
+
+            ['download_started', 'album_error'].forEach(type => {
                 const checkbox = document.getElementById(`log_${type}`);
                 if (checkbox) checkbox.checked = logTypes.includes(type);
             });
 
-            // Grouped mappings
+
             const dlOutcome = document.getElementById('log_download_outcome');
             if (dlOutcome) {
                 dlOutcome.checked = logTypes.includes('download_success') || logTypes.includes('partial_success');
@@ -661,13 +975,13 @@
                 impOutcome.checked = logTypes.includes('import_success') || logTypes.includes('import_partial');
             }
 
-            // Load environment variables
+
             document.getElementById('downloadPath').value = conf.download_path || '';
             document.getElementById('lidarrPath').value = conf.lidarr_path || '';
 
-            // Load forbidden words - check the appropriate checkboxes
-            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix"];
-            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_acoustic', 'fw_instrumental', 'fw_slowed', 'fw_reverb', 'fw_nightcore'];
+
+            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute"];
+            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute'];
 
             forbiddenWordIds.forEach(id => {
                 const checkbox = document.getElementById(id);
@@ -676,8 +990,20 @@
                 }
             });
 
-            // Load duration tolerance
+
             document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
+
+            // Discord
+            document.getElementById('discordWebhook').value = conf.discord_webhook_url || '';
+            const discordLogTypes = conf.discord_log_types || [];
+            ['download_started', 'album_error'].forEach(type => {
+                const cb = document.getElementById(`discord_log_${type}`);
+                if (cb) cb.checked = discordLogTypes.includes(type);
+            });
+            const dDlOutcome = document.getElementById('discord_log_download_outcome');
+            if (dDlOutcome) dDlOutcome.checked = discordLogTypes.includes('download_success') || discordLogTypes.includes('partial_success');
+            const dImpOutcome = document.getElementById('discord_log_import_outcome');
+            if (dImpOutcome) dImpOutcome.checked = discordLogTypes.includes('import_success') || discordLogTypes.includes('import_partial');
 
             updateSchedulerBtn(conf.scheduler_enabled);
             updateAutoDlBtn(conf.scheduler_auto_download);
@@ -726,19 +1052,91 @@
             updateXmlMetadataBtn(data.enabled);
         }
 
+        async function loadYtdlpVersion() {
+            try {
+                const res = await fetch('/api/ytdlp/version');
+                const data = await res.json();
+                document.getElementById('ytdlpVersion').textContent = data.version || 'unknown';
+            } catch (e) {
+                document.getElementById('ytdlpVersion').textContent = 'error';
+            }
+        }
+
+        async function updateYtdlp() {
+            const btn = document.getElementById('ytdlpUpdateBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating yt-dlp...';
+            try {
+                const res = await fetch('/api/ytdlp/update', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('ytdlpVersion').textContent = data.new_version;
+                    if (data.old_version === data.new_version) {
+                        showToast('success', 'Already Up to Date', `yt-dlp ${data.new_version} is the latest version.`);
+                    } else {
+                        showToast('success', 'Update Successful', `yt-dlp updated from ${data.old_version} to ${data.new_version}`);
+                    }
+                } else {
+                    showToast('error', 'Update Failed', data.message || 'Unknown error');
+                }
+            } catch (e) {
+                showToast('error', 'Update Failed', 'Network error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Check for Updates';
+            }
+        }
+
+        function exportConfig() {
+            window.location.href = '/api/config/export';
+        }
+
+        async function handleConfigImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                const parsed = JSON.parse(text);
+                const keyCount = Object.keys(parsed).length;
+                if (!confirm(`Import configuration with ${keyCount} setting(s)? This will overwrite your current settings.`)) {
+                    event.target.value = '';
+                    return;
+                }
+            } catch (e) {
+                showToast('error', 'Invalid File', 'The selected file is not valid JSON.');
+                event.target.value = '';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetch('/api/config/import', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('success', 'Configuration Imported', data.message);
+                    loadConfig();
+                } else {
+                    showToast('error', 'Import Failed', data.message || 'Unknown error');
+                }
+            } catch (e) {
+                showToast('error', 'Import Failed', 'Network error');
+            }
+            event.target.value = '';
+        }
+
         async function saveConfig() {
-            // Collect selected log types
+
             const selectedLogTypes = [];
 
-            // Standard mappings
-            ['download_started', 'import_failed', 'album_error'].forEach(type => {
+
+            ['download_started', 'album_error'].forEach(type => {
                 const checkbox = document.getElementById(`log_${type}`);
                 if (checkbox && checkbox.checked) {
                     selectedLogTypes.push(type);
                 }
             });
 
-            // Grouped mappings
+
             if (document.getElementById('log_download_outcome').checked) {
                 selectedLogTypes.push('download_success');
                 selectedLogTypes.push('partial_success');
@@ -749,7 +1147,7 @@
                 selectedLogTypes.push('import_partial');
             }
 
-            // Path Safety Check
+
             const dPath = document.getElementById('downloadPath').value.trim().replace(/\\/g, '/').toLowerCase();
             const lPath = document.getElementById('lidarrPath').value.trim().replace(/\\/g, '/').toLowerCase();
 
@@ -759,12 +1157,27 @@
                 }
             }
 
-            // Parse and validate forbidden words from checkboxes
-            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_acoustic', 'fw_instrumental', 'fw_slowed', 'fw_reverb', 'fw_nightcore'];
-            const forbiddenWords = forbiddenWordIds
+
+            const forbiddenWordIdsSave = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute'];
+            const forbiddenWords = forbiddenWordIdsSave
                 .map(id => document.getElementById(id))
                 .filter(checkbox => checkbox && checkbox.checked)
                 .map(checkbox => checkbox.value);
+
+            // Discord log types
+            const discordSelectedLogTypes = [];
+            ['download_started', 'album_error'].forEach(type => {
+                const cb = document.getElementById(`discord_log_${type}`);
+                if (cb && cb.checked) discordSelectedLogTypes.push(type);
+            });
+            if (document.getElementById('discord_log_download_outcome').checked) {
+                discordSelectedLogTypes.push('download_success');
+                discordSelectedLogTypes.push('partial_success');
+            }
+            if (document.getElementById('discord_log_import_outcome').checked) {
+                discordSelectedLogTypes.push('import_success');
+                discordSelectedLogTypes.push('import_partial');
+            }
 
             await fetch('/api/config', {
                 method: 'POST',
@@ -777,25 +1190,39 @@
                     telegram_chat_id: document.getElementById('chatId').value,
                     telegram_enabled: !!document.getElementById('botToken').value,
                     telegram_log_types: selectedLogTypes,
+                    discord_webhook_url: document.getElementById('discordWebhook').value,
+                    discord_enabled: !!document.getElementById('discordWebhook').value,
+                    discord_log_types: discordSelectedLogTypes,
                     download_path: document.getElementById('downloadPath').value,
                     lidarr_path: document.getElementById('lidarrPath').value,
                     forbidden_words: forbiddenWords,
                     duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10
                 })
             });
-            alert('✓ Configuration Saved!\n\n⚠️ Note: Changes to Download Path and Lidarr Path require an application restart.');
+            showToast('success', 'Configuration Saved!', 'Changes to Download Path and Lidarr Path require an application restart.');
         }
 
-        async function loadVersion() {
+        async function updateQueueBadge() {
             try {
-                const res = await fetch('/api/version');
-                const data = await res.json();
-                if (data.version) {
-                    document.getElementById('versionDisplay').textContent = `• v${data.version}`;
+                const [queueRes, statusRes] = await Promise.all([
+                    fetch('/api/download/queue'),
+                    fetch('/api/download/status')
+                ]);
+                const queue = await queueRes.json();
+                const status = await statusRes.json();
+                const total = queue.length + (status.active ? 1 : 0);
+                const badge = document.getElementById('queueBadge');
+                if (total > 0) {
+                    badge.textContent = total;
+                    badge.classList.add('active');
+                } else {
+                    badge.classList.remove('active');
                 }
-            } catch (e) {
-            }
+            } catch (e) {}
         }
+        updateQueueBadge();
+        setInterval(updateQueueBadge, 5000);
+
     </script>
 </body>
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 PUID=${PUID:-0}
@@ -13,12 +13,12 @@ if [ "$PUID" != "0" ] && [ "$PGID" != "0" ]; then
 
     # Create group if it doesn't exist
     if ! getent group appgroup > /dev/null 2>&1; then
-        groupadd -g "$PGID" appgroup
+        addgroup -g "$PGID" appgroup
     fi
 
     # Create user if it doesn't exist
     if ! getent passwd appuser > /dev/null 2>&1; then
-        useradd -u "$PUID" -g appgroup -s /bin/bash appuser
+        adduser -u "$PUID" -G appgroup -s /bin/sh -D appuser
     fi
 
     # Ensure /config is owned by the app user

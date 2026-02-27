@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Logs - Lidarr YouTube Downloader</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1384/1384060.png">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         :root {
             --bg: #09090b;
@@ -56,18 +56,18 @@
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            overflow-x: hidden;
         }
 
         header {
             background: var(--surface-glass);
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            backdrop-filter: blur(30px) saturate(200%);
+            -webkit-backdrop-filter: blur(30px) saturate(200%);
             border-bottom: 1px solid var(--border-glass);
             position: sticky;
             top: 0;
             z-index: 50;
-            padding: 1rem 0;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+            padding: 0;
         }
 
         .nav-container {
@@ -77,91 +77,167 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            height: 64px;
         }
 
         .logo {
             font-weight: 800;
-            font-size: 1.2rem;
+            font-size: 1.25rem;
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            gap: 0.6rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0, #0891b2);
+            background-size: 200% 200%;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            cursor: pointer;
+            animation: gradient-shift 4s ease infinite;
+            letter-spacing: -0.02em;
             text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .logo-icon svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        @keyframes gradient-shift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
         }
 
         .nav-links {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.25rem;
             align-items: center;
         }
 
         .nav-links a {
-            color: var(--text);
+            color: var(--text-dim);
             text-decoration: none;
             font-weight: 500;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            transition: all 0.3s ease;
+            font-size: 0.9rem;
+            padding: 0.5rem 0.9rem;
+            border-radius: 10px;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
             position: relative;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
         }
 
         .nav-links a:hover {
+            color: var(--text);
+            background: var(--surface-hover);
+        }
+
+        .nav-links a.active {
             color: var(--primary);
-            background: var(--surface-glass);
-            backdrop-filter: blur(10px);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .nav-badge {
+            background: linear-gradient(135deg, #ef4444, #f87171);
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 700;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 5px;
+            line-height: 1;
+            animation: badgePop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .nav-badge.active {
+            display: inline-flex;
+        }
+
+        @keyframes badgePop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
         }
 
         .nav-links a::after {
             content: '';
             position: absolute;
-            bottom: 0;
+            bottom: 2px;
             left: 50%;
             transform: translateX(-50%) scaleX(0);
-            width: 80%;
+            width: 60%;
             height: 2px;
             background: linear-gradient(90deg, var(--primary), #06d6a0);
-            transition: transform 0.3s ease;
+            border-radius: 1px;
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
-        .nav-links a:hover::after {
+        .nav-links a:hover::after,
+        .nav-links a.active::after {
             transform: translateX(-50%) scaleX(1);
-        }
-
-        .nav-links a.active {
-            color: var(--primary);
         }
 
         .controls {
             display: flex;
-            gap: 1rem;
+            gap: 0.75rem;
             align-items: center;
         }
 
-        .icon-btn {
+        .theme-toggle {
             background: var(--surface-glass);
             backdrop-filter: blur(10px);
             border: 1px solid var(--border-glass);
             color: var(--text);
             width: 40px;
             height: 40px;
-            border-radius: 50%;
+            border-radius: 12px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 1.1rem;
-            transition: all 0.3s ease;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
         }
 
-        .icon-btn:hover {
+        .theme-toggle:hover {
             background: var(--surface-hover);
             border-color: var(--primary);
             box-shadow: var(--glow);
-            transform: scale(1.05);
+            transform: scale(1.08);
+        }
+
+        .theme-toggle:active {
+            transform: scale(0.92);
+        }
+
+        .theme-toggle i {
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .theme-toggle.spin i {
+            animation: themeSwitch 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes themeSwitch {
+            0% { transform: rotate(0deg) scale(1); opacity: 1; }
+            50% { transform: rotate(180deg) scale(0); opacity: 0; }
+            100% { transform: rotate(360deg) scale(1); opacity: 1; }
         }
 
         .container {
@@ -317,6 +393,10 @@
             border-left: 4px solid var(--danger);
         }
 
+        .log-card.manual_download {
+            border-left: 4px solid #8b5cf6;
+        }
+
         .log-header {
             display: flex;
             justify-content: space-between;
@@ -374,6 +454,11 @@
             color: var(--danger);
         }
 
+        .log-type.manual_download {
+            background: rgba(139, 92, 246, 0.1);
+            color: #8b5cf6;
+        }
+
         .log-album {
             font-size: 1.1rem;
             font-weight: 700;
@@ -415,10 +500,37 @@
             font-weight: bold;
         }
 
+        .failed-track-reason {
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            opacity: 0.8;
+            margin-top: 0.15rem;
+            padding-left: 0.2rem;
+        }
+
+        .failed-track-reason i {
+            font-size: 0.65rem;
+            margin-right: 0.25rem;
+            opacity: 0.6;
+        }
+
         .log-timestamp {
             color: var(--text-dim);
             font-size: 0.8rem;
             margin-top: 0.5rem;
+        }
+
+        .log-file-size {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.2rem 0.6rem;
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-radius: 6px;
+            margin-left: 0.5rem;
         }
 
         .log-actions {
@@ -446,6 +558,33 @@
             color: white;
         }
 
+        .btn-load-more {
+            display: block;
+            width: 100%;
+            padding: 1rem;
+            margin-top: 1rem;
+            border: 1px dashed var(--border-glass);
+            border-radius: var(--radius);
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .btn-load-more:hover {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+            transform: translateY(-2px);
+        }
+
+        .btn-load-more:active {
+            transform: scale(0.98);
+        }
+
         .empty-state {
             text-align: center;
             padding: 4rem 2rem;
@@ -470,49 +609,54 @@
 
         footer {
             text-align: center;
-            padding: 2rem;
+            padding: 1.5rem 2rem;
             color: var(--text-dim);
             font-size: 0.9rem;
             border-top: 1px solid var(--border-glass);
             background: var(--surface-glass);
             backdrop-filter: blur(20px);
             margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .footer-github {
+            color: var(--text-dim);
+            font-size: 1.3rem;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .footer-github:hover {
+            color: var(--primary);
+            transform: scale(1.15);
         }
 
         @media (max-width: 768px) {
             .nav-container {
+                height: auto;
                 flex-wrap: wrap;
-                padding: 1rem;
-                gap: 0.75rem;
+                padding: 0.75rem 1rem;
+                gap: 0.5rem;
             }
 
             .logo {
-                width: 100%;
-                justify-content: center;
                 font-size: 1rem;
-            }
-
-            .logo-link {
-                width: 100%;
-                display: block;
-                text-align: center;
             }
 
             .nav-links {
                 width: 100%;
                 justify-content: center;
                 flex-wrap: wrap;
-                gap: 0.25rem;
+                gap: 0.15rem;
+                order: 3;
             }
 
             .nav-links a {
-                padding: 0.4rem 0.8rem;
-                font-size: 0.85rem;
-            }
-
-            .controls {
-                width: 100%;
-                justify-content: center;
+                padding: 0.35rem 0.7rem;
+                font-size: 0.8rem;
             }
 
             .container {
@@ -545,27 +689,32 @@
 
 <body>
     <header>
-        <nav class="nav-container">
-            <a href="/" class="logo-link" style="text-decoration: none;">
-                <div class="logo">🎵 Lidarr YouTube Downloader</div>
+        <div class="nav-container">
+            <a href="/" style="text-decoration: none;">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 32 32" fill="white"><rect x="4" y="18" width="4" height="8" rx="1"/><rect x="10" y="12" width="4" height="14" rx="1"/><rect x="18" y="6" width="4" height="20" rx="1"/><rect x="24" y="14" width="4" height="12" rx="1"/></svg>
+                    </div>
+                    LYD
+                </div>
             </a>
             <div class="nav-links">
                 <a href="/"><i class="fas fa-home"></i> Home</a>
-                <a href="/downloads"><i class="fas fa-download"></i> Downloads</a>
+                <a href="/downloads"><i class="fas fa-download"></i> Downloads <span class="nav-badge" id="queueBadge">0</span></a>
                 <a href="/logs" class="active"><i class="fas fa-list"></i> Logs</a>
                 <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
             </div>
             <div class="controls">
-                <button class="icon-btn" onclick="toggleTheme()">
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
                     <i class="fas fa-moon" id="theme-icon"></i>
                 </button>
             </div>
-        </nav>
+        </div>
     </header>
 
     <div class="container">
         <div class="page-header">
-            <h1 class="page-title">📋 Download Logs</h1>
+            <h1 class="page-title">📋 Logs</h1>
             <p class="page-subtitle">Track errors and issues during downloads</p>
         </div>
 
@@ -580,6 +729,7 @@
                     <option value="import_partial">Import Partial</option>
                     <option value="import_failed">Import Failed</option>
                     <option value="album_error">Album Error</option>
+                    <option value="manual_download">Manual Download</option>
                 </select>
             </div>
             <button class="btn btn-danger" onclick="clearAllLogs()">
@@ -588,8 +738,19 @@
             </button>
         </div>
 
+        <div id="logsFileSize" style="text-align:center;color:var(--text-dim);font-size:0.8rem;margin-bottom:1rem;display:none;">
+            <i class="fas fa-database" style="margin-right:0.3rem;"></i>
+            Log file size: <strong id="logsSizeValue">—</strong>
+        </div>
+
         <div class="logs-container" id="logsContainer">
-            
+
+        </div>
+
+        <div id="logsLoadMore" style="display:none;">
+            <button class="btn-load-more" onclick="loadMoreLogs()">
+                <i class="fas fa-chevron-down"></i> Load More (<span id="logsRemaining">0</span> remaining)
+            </button>
         </div>
 
         <div class="empty-state" id="emptyState" style="display: none;">
@@ -602,47 +763,82 @@
     </div>
 
     <footer>
-        Made with love ❤️ <span id="versionDisplay"></span>
+        <div>Made with love ❤️ • {{ APP_VERSION }}</div>
+        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
     </footer>
 
     <script>
         let allLogs = [];
         let currentFilter = 'all';
+        const LOGS_PER_PAGE = 25;
+        let currentFilteredLogs = [];
+        let logsDisplayed = 0;
 
-        // Theme toggle
-        function toggleTheme() {
-            document.body.classList.toggle('light');
-            const icon = document.getElementById('theme-icon');
-            if (document.body.classList.contains('light')) {
-                icon.classList.remove('fa-moon');
-                icon.classList.add('fa-sun');
-                localStorage.setItem('theme', 'light');
-            } else {
-                icon.classList.remove('fa-sun');
-                icon.classList.add('fa-moon');
-                localStorage.setItem('theme', 'dark');
-            }
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
         }
 
-        // Load theme from localStorage
+        function formatBytes(bytes) {
+            if (!bytes || bytes <= 0) return '';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            let size = bytes;
+            while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+            return size.toFixed(1) + ' ' + units[i];
+        }
+
+        function toggleTheme() {
+            const toggle = document.getElementById('themeToggle');
+            toggle.classList.add('spin');
+            setTimeout(() => {
+                document.body.classList.toggle('light');
+                const icon = document.getElementById('theme-icon');
+                if (document.body.classList.contains('light')) {
+                    icon.classList.remove('fa-moon');
+                    icon.classList.add('fa-sun');
+                    localStorage.setItem('theme', 'light');
+                } else {
+                    icon.classList.remove('fa-sun');
+                    icon.classList.add('fa-moon');
+                    localStorage.setItem('theme', 'dark');
+                }
+            }, 250);
+            setTimeout(() => toggle.classList.remove('spin'), 500);
+        }
+
+
         if (localStorage.getItem('theme') === 'light') {
             document.body.classList.add('light');
             document.getElementById('theme-icon').classList.remove('fa-moon');
             document.getElementById('theme-icon').classList.add('fa-sun');
         }
 
-        // Fetch logs from API
+
         async function fetchLogs() {
             try {
                 const response = await fetch('/api/logs');
                 allLogs = await response.json();
                 filterLogs();
+                fetchLogsSize();
             } catch (error) {
                 console.error('Error fetching logs:', error);
             }
         }
 
-        // Format timestamp
+        async function fetchLogsSize() {
+            try {
+                const res = await fetch('/api/logs/size');
+                const data = await res.json();
+                const el = document.getElementById('logsFileSize');
+                document.getElementById('logsSizeValue').textContent = data.formatted || '0 B';
+                el.style.display = 'block';
+            } catch (_) {}
+        }
+
+
         function formatTimestamp(timestamp) {
             const date = new Date(timestamp * 1000);
             const now = new Date();
@@ -659,7 +855,7 @@
             return date.toLocaleString();
         }
 
-        // Get log type display name and icon
+
         function getLogTypeInfo(type) {
             const types = {
                 'download_started': { name: 'Download Started', icon: 'fa-play-circle' },
@@ -668,22 +864,87 @@
                 'import_success': { name: 'Import Success', icon: 'fa-check-double' },
                 'import_partial': { name: 'Import Partial', icon: 'fa-exclamation-triangle' },
                 'import_failed': { name: 'Import Failed', icon: 'fa-times-circle' },
-                'album_error': { name: 'Album Error', icon: 'fa-exclamation-circle' }
+                'album_error': { name: 'Album Error', icon: 'fa-exclamation-circle' },
+                'manual_download': { name: 'Manual Download', icon: 'fa-hand-pointer' }
             };
             return types[type] || { name: type, icon: 'fa-info-circle' };
         }
 
-        // Filter logs
-        function filterLogs() {
-            currentFilter = document.getElementById('filterType').value;
-            const filtered = currentFilter === 'all'
-                ? allLogs
-                : allLogs.filter(log => log.type === currentFilter);
 
-            renderLogs(filtered);
+        function renderLogCard(log) {
+            const typeInfo = getLogTypeInfo(log.type);
+            const failedTracksHtml = log.failed_tracks && log.failed_tracks.length > 0
+                ? `<div class="log-details">
+                    <div class="log-details-title">Failed Tracks (${log.failed_tracks.length}):</div>
+                    <ul class="failed-tracks-list">
+                        ${log.failed_tracks.map(track => {
+                            if (typeof track === 'object' && track.title) {
+                                return `<li><strong>${escapeHtml(track.title)}</strong>${track.reason ? `<div class="failed-track-reason"><i class="fas fa-arrow-right"></i> ${escapeHtml(track.reason)}</div>` : ''}</li>`;
+                            }
+                            return `<li>${track}</li>`;
+                        }).join('')}
+                    </ul>
+                </div>`
+                : '';
+
+            return `
+                <div class="log-card ${log.type}" id="log-${log.id}">
+                    <div class="log-header">
+                        <div class="log-info">
+                            <div class="log-type ${log.type}">
+                                <i class="fas ${typeInfo.icon}"></i>
+                                ${typeInfo.name}
+                            </div>
+                            <div class="log-album">${escapeHtml(log.album_title)}</div>
+                            <div class="log-artist">by ${escapeHtml(log.artist_name)}</div>
+                        </div>
+                        <div class="log-actions">
+                            <button class="btn-icon" onclick="dismissLog('${log.id}')" title="Dismiss">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                    ${log.details ? `<div class="log-details"><div class="log-details-title">Details:</div>${escapeHtml(log.details)}</div>` : ''}
+                    ${failedTracksHtml}
+                    <div class="log-timestamp">
+                        <i class="fas fa-clock"></i> ${formatTimestamp(log.timestamp)}${log.total_file_size ? `<span class="log-file-size"><i class="fas fa-weight-hanging"></i> ${formatBytes(log.total_file_size)}</span>` : ''}
+                    </div>
+                </div>
+            `;
         }
 
-        // Render logs
+
+        function updateLogsLoadMore() {
+            const loadMoreDiv = document.getElementById('logsLoadMore');
+            const remaining = currentFilteredLogs.length - logsDisplayed;
+            if (remaining > 0) {
+                document.getElementById('logsRemaining').textContent = remaining;
+                loadMoreDiv.style.display = 'block';
+            } else {
+                loadMoreDiv.style.display = 'none';
+            }
+        }
+
+
+        function loadMoreLogs() {
+            const container = document.getElementById('logsContainer');
+            const nextBatch = currentFilteredLogs.slice(logsDisplayed, logsDisplayed + LOGS_PER_PAGE);
+            container.insertAdjacentHTML('beforeend', nextBatch.map(renderLogCard).join(''));
+            logsDisplayed += nextBatch.length;
+            updateLogsLoadMore();
+        }
+
+
+        function filterLogs() {
+            currentFilter = document.getElementById('filterType').value;
+            currentFilteredLogs = currentFilter === 'all'
+                ? [...allLogs]
+                : allLogs.filter(log => log.type === currentFilter);
+
+            renderLogs(currentFilteredLogs);
+        }
+
+
         function renderLogs(logs) {
             const container = document.getElementById('logsContainer');
             const emptyState = document.getElementById('emptyState');
@@ -691,49 +952,18 @@
             if (logs.length === 0) {
                 container.innerHTML = '';
                 emptyState.style.display = 'block';
+                document.getElementById('logsLoadMore').style.display = 'none';
                 return;
             }
 
             emptyState.style.display = 'none';
-            container.innerHTML = logs.map(log => {
-                const typeInfo = getLogTypeInfo(log.type);
-                const failedTracksHtml = log.failed_tracks && log.failed_tracks.length > 0
-                    ? `<div class="log-details">
-                        <div class="log-details-title">Failed Tracks (${log.failed_tracks.length}):</div>
-                        <ul class="failed-tracks-list">
-                            ${log.failed_tracks.map(track => `<li>${track}</li>`).join('')}
-                        </ul>
-                    </div>`
-                    : '';
-
-                return `
-                    <div class="log-card ${log.type}" id="log-${log.id}">
-                        <div class="log-header">
-                            <div class="log-info">
-                                <div class="log-type ${log.type}">
-                                    <i class="fas ${typeInfo.icon}"></i>
-                                    ${typeInfo.name}
-                                </div>
-                                <div class="log-album">${log.album_title}</div>
-                                <div class="log-artist">by ${log.artist_name}</div>
-                            </div>
-                            <div class="log-actions">
-                                <button class="btn-icon" onclick="dismissLog('${log.id}')" title="Dismiss">
-                                    <i class="fas fa-times"></i>
-                                </button>
-                            </div>
-                        </div>
-                        ${log.details ? `<div class="log-details"><div class="log-details-title">Details:</div>${log.details}</div>` : ''}
-                        ${failedTracksHtml}
-                        <div class="log-timestamp">
-                            <i class="fas fa-clock"></i> ${formatTimestamp(log.timestamp)}
-                        </div>
-                    </div>
-                `;
-            }).join('');
+            const firstBatch = logs.slice(0, LOGS_PER_PAGE);
+            container.innerHTML = firstBatch.map(renderLogCard).join('');
+            logsDisplayed = firstBatch.length;
+            updateLogsLoadMore();
         }
 
-        // Dismiss a single log
+
         async function dismissLog(logId) {
             if (!confirm('Are you sure you want to dismiss this log entry?')) return;
 
@@ -743,7 +973,7 @@
                 });
 
                 if (response.ok) {
-                    // Remove from UI with animation
+
                     const logCard = document.getElementById(`log-${logId}`);
                     if (logCard) {
                         logCard.style.animation = 'slideOut 0.3s ease forwards';
@@ -760,7 +990,7 @@
             }
         }
 
-        // Clear all logs
+
         async function clearAllLogs() {
             if (!confirm('Are you sure you want to clear all logs? This action cannot be undone.')) return;
 
@@ -780,7 +1010,7 @@
             }
         }
 
-        // Add slideOut animation
+
         const style = document.createElement('style');
         style.textContent = `
             @keyframes slideOut {
@@ -792,24 +1022,33 @@
         `;
         document.head.appendChild(style);
 
-        // Initial fetch
+
         fetchLogs();
 
-        // Refresh logs every 30 seconds
+        async function updateQueueBadge() {
+            try {
+                const [queueRes, statusRes] = await Promise.all([
+                    fetch('/api/download/queue'),
+                    fetch('/api/download/status')
+                ]);
+                const queue = await queueRes.json();
+                const status = await statusRes.json();
+                const total = queue.length + (status.active ? 1 : 0);
+                const badge = document.getElementById('queueBadge');
+                if (total > 0) {
+                    badge.textContent = total;
+                    badge.classList.add('active');
+                } else {
+                    badge.classList.remove('active');
+                }
+            } catch (e) {}
+        }
+        updateQueueBadge();
+        setInterval(updateQueueBadge, 5000);
+
         setInterval(fetchLogs, 30000);
 
-        // Load version
-        async function loadVersion() {
-            try {
-                const res = await fetch('/api/version');
-                const data = await res.json();
-                if (data.version) {
-                    document.getElementById('versionDisplay').textContent = `• v${data.version}`;
-                }
-            } catch (e) {
-            }
-        }
-        loadVersion();
+
     </script>
 </body>
 
