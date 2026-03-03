@@ -514,6 +514,28 @@
             opacity: 0.6;
         }
 
+        .btn-retry-failed {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.3rem 0.7rem;
+            border-radius: 6px;
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            color: #ef4444;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-right: 0.5rem;
+        }
+
+        .btn-retry-failed:hover {
+            background: rgba(239, 68, 68, 0.25);
+            border-color: #ef4444;
+        }
+
         .log-timestamp {
             color: var(--text-dim);
             font-size: 0.8rem;
@@ -817,6 +839,8 @@
         }
 
 
+        let failedAlbumId = null;
+
         async function fetchLogs() {
             try {
                 const response = await fetch('/api/logs');
@@ -873,6 +897,11 @@
 
         function renderLogCard(log) {
             const typeInfo = getLogTypeInfo(log.type);
+            const retryBtnHtml = (failedAlbumId && log.album_id === failedAlbumId)
+                ? `<a href="/?retry=1" class="btn-retry-failed" title="Open retry panel for failed tracks">
+                       <i class="fas fa-redo"></i> Retry Failed Tracks
+                   </a>`
+                : '';
             const failedTracksHtml = log.failed_tracks && log.failed_tracks.length > 0
                 ? `<div class="log-details">
                     <div class="log-details-title">Failed Tracks (${log.failed_tracks.length}):</div>
@@ -899,6 +928,7 @@
                             <div class="log-artist">by ${escapeHtml(log.artist_name)}</div>
                         </div>
                         <div class="log-actions">
+                            ${retryBtnHtml}
                             <button class="btn-icon" onclick="dismissLog('${log.id}')" title="Dismiss">
                                 <i class="fas fa-times"></i>
                             </button>
@@ -1023,7 +1053,17 @@
         document.head.appendChild(style);
 
 
-        fetchLogs();
+        /* Load failed album context before rendering logs so the retry button appears on first render */
+        (async () => {
+            try {
+                const res = await fetch('/api/download/failed');
+                const data = await res.json();
+                if (data.failed_tracks && data.failed_tracks.length > 0) {
+                    failedAlbumId = data.album_id;
+                }
+            } catch (_) {}
+            fetchLogs();
+        })();
 
         async function updateQueueBadge() {
             try {
