@@ -115,6 +115,12 @@ def parse_args():
         help="Include verified matches in output (default: mismatches only)",
     )
     parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Output as JSON instead of a human-readable table",
+    )
+    parser.add_argument(
         "-n", "--limit",
         type=int,
         default=0,
@@ -312,9 +318,87 @@ def compare_fingerprint(expected_id, results, threshold):
     return "unverified", None, 0.0
 
 
-def emit_result(result):
-    """Write one JSONL line to stdout."""
-    print(json.dumps(result, ensure_ascii=False))
+STATUS_ORDER = ["mismatch", "unverified", "no_id", "error", "verified"]
+STATUS_LABELS = {
+    "mismatch": "Mismatch",
+    "unverified": "Unverified",
+    "no_id": "No ID in Tags",
+    "error": "Error",
+    "verified": "Verified",
+}
+
+
+def relative_path(filepath, base_dir):
+    """Return filepath relative to base_dir, or just the filename."""
+    try:
+        return str(Path(filepath).relative_to(base_dir))
+    except ValueError:
+        return str(filepath)
+
+
+def print_table(results, base_dir):
+    """Print a human-readable table of results to stdout."""
+    if not results:
+        return
+
+    file_col = max(len(relative_path(r["file"], base_dir)) for r in results)
+    file_col = max(file_col, 4)  # minimum width for "File" header
+    track_col = max((len(r["track"] or "") for r in results), default=5)
+    track_col = max(track_col, 5)
+
+    header = (
+        f"{'Status':<14}  "
+        f"{'File':<{file_col}}  "
+        f"{'Track':<{track_col}}  "
+        f"{'Score':>5}  "
+        f"{'Expected ID':<36}  "
+        f"{'Matched ID':<36}"
+    )
+    print(header)
+    print("-" * len(header))
+
+    for result in results:
+        rel = relative_path(result["file"], base_dir)
+        label = STATUS_LABELS.get(result["status"], result["status"])
+        score = f"{result['score']:.2f}" if result["score"] else "  -  "
+        expected = result.get("expected_id") or "-"
+        matched = result.get("matched_id") or "-"
+        track = result.get("track") or "-"
+        print(
+            f"{label:<14}  "
+            f"{rel:<{file_col}}  "
+            f"{track:<{track_col}}  "
+            f"{score:>5}  "
+            f"{expected:<36}  "
+            f"{matched:<36}"
+        )
+
+
+def print_json(results, base_dir):
+    """Print grouped JSON output to stdout."""
+    groups = []
+    for status in STATUS_ORDER:
+        items = [r for r in results if r["status"] == status]
+        if not items:
+            continue
+        group_items = []
+        for r in items:
+            group_items.append({
+                "file": relative_path(r["file"], base_dir),
+                "artist": r.get("artist"),
+                "album": r.get("album"),
+                "track": r.get("track"),
+                "expected_id": r.get("expected_id"),
+                "matched_id": r.get("matched_id"),
+                "score": r["score"],
+            })
+        groups.append({
+            "status": status,
+            "label": STATUS_LABELS.get(status, status),
+            "count": len(group_items),
+            "files": group_items,
+        })
+    print(json.dumps(groups, indent=2, ensure_ascii=False))
 
 
 def log(msg):
@@ -362,10 +446,15 @@ def main():
     check_fpcalc()
 
     scan_paths = resolve_scan_paths(config, args)
+    base_dir = (
+        Path(args.directory).expanduser().resolve() if args.directory else None
+    )
+
     if args.verbose:
         log(f"Scanning {len(scan_paths)} path(s)")
 
     counts = {"verified": 0, "mismatch": 0, "unverified": 0, "no_id": 0, "errors": 0}
+    all_results = []
     files_scanned = 0
 
     for scan_path in scan_paths:
@@ -388,6 +477,11 @@ def main():
             except Exception as e:
                 log(f"  Error processing {filepath}: {e}")
                 counts["errors"] += 1
+                all_results.append({
+                    "file": str(filepath), "status": "error",
+                    "artist": None, "album": None, "track": None,
+                    "expected_id": None, "matched_id": None, "score": 0.0,
+                })
                 files_scanned += 1
                 continue
 
@@ -395,15 +489,17 @@ def main():
                 if args.verbose:
                     log(f"  Skipped (fpcalc failed): {filepath.name}")
                 counts["errors"] += 1
+                all_results.append({
+                    "file": str(filepath), "status": "error",
+                    "artist": None, "album": None, "track": None,
+                    "expected_id": None, "matched_id": None, "score": 0.0,
+                })
                 files_scanned += 1
                 continue
 
             files_scanned += 1
-            status = result["status"]
-            counts[status] = counts.get(status, 0) + 1
-
-            if args.show_all or status != "verified":
-                emit_result(result)
+            counts[result["status"]] = counts.get(result["status"], 0) + 1
+            all_results.append(result)
 
         if args.limit > 0 and files_scanned >= args.limit:
             break
@@ -411,6 +507,22 @@ def main():
     if files_scanned == 0:
         log("Error: No MP3 files found")
         sys.exit(2)
+
+    output_results = sorted(
+        all_results,
+        key=lambda r: STATUS_ORDER.index(r["status"])
+        if r["status"] in STATUS_ORDER else len(STATUS_ORDER),
+    )
+    if not args.show_all:
+        output_results = [r for r in output_results if r["status"] != "verified"]
+
+    if base_dir is None:
+        base_dir = Path("/")
+
+    if args.json_output:
+        print_json(output_results, base_dir)
+    elif output_results:
+        print_table(output_results, base_dir)
 
     log("")
     log("Summary:")
