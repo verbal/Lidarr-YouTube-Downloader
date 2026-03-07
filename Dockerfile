@@ -1,6 +1,6 @@
 FROM python:alpine
 
-RUN apk add --no-cache ffmpeg gosu ca-certificates
+RUN apk add --no-cache ffmpeg gosu ca-certificates chromaprint
 
 WORKDIR /app
 
