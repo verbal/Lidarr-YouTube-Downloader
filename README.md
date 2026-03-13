@@ -86,6 +86,22 @@ services:
 
 ---
 
+## 🔄 Upgrading from JSON to SQLite
+
+If upgrading from a version that used JSON files (`download_history.json`, `download_logs.json`, `last_failed_result.json`), run the migration tool:
+
+```bash
+# Inside the container:
+python3 tools/migrate_json_to_db.py --config-dir /config
+
+# Or from the host if config is mounted:
+python3 tools/migrate_json_to_db.py --config-dir ./config
+```
+
+This imports data into the SQLite database and renames the originals to `*.json.migrated`.
+
+---
+
 ## ⚠️ Disclaimer
 
 This tool is for **educational purposes** and managing your personal library.  
