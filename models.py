@@ -121,13 +121,28 @@ def add_log(
     return log_id
 
 
-def get_logs(page=1, per_page=50):
-    """Return paginated download logs, newest first."""
-    result = _paginate(
-        "SELECT * FROM download_logs ORDER BY timestamp DESC",
-        "SELECT COUNT(*) FROM download_logs",
-        (), page, per_page,
-    )
+def get_logs(page=1, per_page=50, log_type=None):
+    """Return paginated download logs, newest first.
+
+    Args:
+        page: Page number (1-based).
+        per_page: Items per page.
+        log_type: Optional log type filter (e.g. 'album_error').
+    """
+    if log_type:
+        query = (
+            "SELECT * FROM download_logs"
+            " WHERE type = ? ORDER BY timestamp DESC"
+        )
+        count_query = (
+            "SELECT COUNT(*) FROM download_logs WHERE type = ?"
+        )
+        params = (log_type,)
+    else:
+        query = "SELECT * FROM download_logs ORDER BY timestamp DESC"
+        count_query = "SELECT COUNT(*) FROM download_logs"
+        params = ()
+    result = _paginate(query, count_query, params, page, per_page)
     for item in result["items"]:
         item["failed_tracks"] = json.loads(item["failed_tracks"])
     return result

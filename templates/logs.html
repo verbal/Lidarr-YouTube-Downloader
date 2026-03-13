@@ -580,31 +580,51 @@
             color: white;
         }
 
-        .btn-load-more {
-            display: block;
-            width: 100%;
-            padding: 1rem;
-            margin-top: 1rem;
-            border: 1px dashed var(--border-glass);
-            border-radius: var(--radius);
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1.25rem;
+            flex-wrap: wrap;
+        }
+
+        .pagination-info {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+
+        .pagination button {
             background: var(--surface-glass);
             backdrop-filter: blur(10px);
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 0.95rem;
+            border: 1px solid var(--border-glass);
+            color: var(--text-dim);
+            padding: 0.5rem 0.85rem;
+            border-radius: 10px;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            min-width: 38px;
         }
 
-        .btn-load-more:hover {
+        .pagination button:hover:not(:disabled) {
             background: rgba(16, 185, 129, 0.1);
             border-color: var(--primary);
-            box-shadow: var(--glow);
-            transform: translateY(-2px);
+            color: var(--primary);
         }
 
-        .btn-load-more:active {
-            transform: scale(0.98);
+        .pagination button.active {
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            color: white;
+            border-color: transparent;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
 
         .empty-state {
@@ -769,11 +789,7 @@
 
         </div>
 
-        <div id="logsLoadMore" style="display:none;">
-            <button class="btn-load-more" onclick="loadMoreLogs()">
-                <i class="fas fa-chevron-down"></i> Load More (<span id="logsRemaining">0</span> remaining)
-            </button>
-        </div>
+        <div id="logsPagination"></div>
 
         <div class="empty-state" id="emptyState" style="display: none;">
             <div class="empty-state-icon">
@@ -790,11 +806,11 @@
     </footer>
 
     <script>
-        let allLogs = [];
         let currentFilter = 'all';
-        const LOGS_PER_PAGE = 25;
-        let currentFilteredLogs = [];
-        let logsDisplayed = 0;
+        const LOGS_PER_PAGE = 50;
+        let logsCurrentPage = 1;
+        let logsTotalPages = 1;
+        let logsTotal = 0;
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -841,11 +857,95 @@
 
         let failedAlbumId = null;
 
+        function buildPageNumbers(current, total) {
+            if (total <= 7) {
+                return Array.from({length: total}, (_, i) => i + 1);
+            }
+            const pages = [1];
+            if (current > 3) pages.push('...');
+            const lo = Math.max(2, current - 1);
+            const hi = Math.min(total - 1, current + 1);
+            for (let i = lo; i <= hi; i++) pages.push(i);
+            if (current < total - 2) pages.push('...');
+            pages.push(total);
+            return pages;
+        }
+
+        function renderPagination(
+            containerId, currentPage, totalPages,
+            total, perPage, goToPageFn
+        ) {
+            const wrapper = document.getElementById(containerId);
+            wrapper.textContent = '';
+            if (totalPages <= 1) return;
+
+            const start = (currentPage - 1) * perPage + 1;
+            const end = Math.min(currentPage * perPage, total);
+
+            const info = document.createElement('div');
+            info.className = 'pagination-info';
+            info.textContent = `Showing ${start}\u2013${end} of ${total}`;
+            wrapper.appendChild(info);
+
+            const nav = document.createElement('div');
+            nav.className = 'pagination';
+
+            const makeFaIcon = (cls) => {
+                const i = document.createElement('i');
+                i.className = cls;
+                return i;
+            };
+
+            const prevBtn = document.createElement('button');
+            prevBtn.disabled = currentPage <= 1;
+            prevBtn.appendChild(makeFaIcon('fa-solid fa-chevron-left'));
+            prevBtn.addEventListener('click', () => window[goToPageFn](currentPage - 1));
+            nav.appendChild(prevBtn);
+
+            for (const p of buildPageNumbers(currentPage, totalPages)) {
+                if (p === '...') {
+                    const ellipsis = document.createElement('span');
+                    ellipsis.style.cssText = 'color:var(--text-dim);padding:0 0.25rem;';
+                    ellipsis.textContent = '\u2026';
+                    nav.appendChild(ellipsis);
+                } else {
+                    const btn = document.createElement('button');
+                    btn.textContent = p;
+                    if (p === currentPage) btn.className = 'active';
+                    btn.addEventListener('click', () => window[goToPageFn](p));
+                    nav.appendChild(btn);
+                }
+            }
+
+            const nextBtn = document.createElement('button');
+            nextBtn.disabled = currentPage >= totalPages;
+            nextBtn.appendChild(makeFaIcon('fa-solid fa-chevron-right'));
+            nextBtn.addEventListener('click', () => window[goToPageFn](currentPage + 1));
+            nav.appendChild(nextBtn);
+
+            wrapper.appendChild(nav);
+        }
+
+        function goToLogsPage(page) {
+            if (page < 1 || page > logsTotalPages) return;
+            logsCurrentPage = page;
+            fetchLogs();
+        }
+
         async function fetchLogs() {
             try {
-                const response = await fetch('/api/logs');
-                allLogs = await response.json();
-                filterLogs();
+                let url = `/api/logs?page=${logsCurrentPage}&per_page=${LOGS_PER_PAGE}`;
+                if (currentFilter !== 'all') {
+                    url += `&type=${encodeURIComponent(currentFilter)}`;
+                }
+                const response = await fetch(url);
+                const data = await response.json();
+
+                logsTotal = data.total;
+                logsTotalPages = data.pages;
+                logsCurrentPage = data.page;
+
+                renderLogs(data.items, data.total);
                 fetchLogsSize();
             } catch (error) {
                 console.error('Error fetching logs:', error);
@@ -945,53 +1045,32 @@
         }
 
 
-        function updateLogsLoadMore() {
-            const loadMoreDiv = document.getElementById('logsLoadMore');
-            const remaining = currentFilteredLogs.length - logsDisplayed;
-            if (remaining > 0) {
-                document.getElementById('logsRemaining').textContent = remaining;
-                loadMoreDiv.style.display = 'block';
-            } else {
-                loadMoreDiv.style.display = 'none';
-            }
-        }
-
-
-        function loadMoreLogs() {
-            const container = document.getElementById('logsContainer');
-            const nextBatch = currentFilteredLogs.slice(logsDisplayed, logsDisplayed + LOGS_PER_PAGE);
-            container.insertAdjacentHTML('beforeend', nextBatch.map(renderLogCard).join(''));
-            logsDisplayed += nextBatch.length;
-            updateLogsLoadMore();
-        }
-
-
         function filterLogs() {
             currentFilter = document.getElementById('filterType').value;
-            currentFilteredLogs = currentFilter === 'all'
-                ? [...allLogs]
-                : allLogs.filter(log => log.type === currentFilter);
-
-            renderLogs(currentFilteredLogs);
+            logsCurrentPage = 1;
+            fetchLogs();
         }
 
-
-        function renderLogs(logs) {
+        function renderLogs(logs, total) {
             const container = document.getElementById('logsContainer');
             const emptyState = document.getElementById('emptyState');
 
             if (logs.length === 0) {
-                container.innerHTML = '';
+                container.textContent = '';
                 emptyState.style.display = 'block';
-                document.getElementById('logsLoadMore').style.display = 'none';
+                document.getElementById('logsPagination').textContent = '';
                 return;
             }
 
             emptyState.style.display = 'none';
-            const firstBatch = logs.slice(0, LOGS_PER_PAGE);
-            container.innerHTML = firstBatch.map(renderLogCard).join('');
-            logsDisplayed = firstBatch.length;
-            updateLogsLoadMore();
+            // renderLogCard only interpolates escapeHtml()-sanitised
+            // values and hardcoded class literals, so this is safe.
+            container.innerHTML = logs.map(renderLogCard).join('');
+            renderPagination(
+                'logsPagination', logsCurrentPage,
+                logsTotalPages, logsTotal,
+                LOGS_PER_PAGE, 'goToLogsPage'
+            );
         }
 
 

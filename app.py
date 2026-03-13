@@ -439,7 +439,8 @@ def api_stats():
 def api_get_logs():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 50, type=int)
-    return jsonify(models.get_logs(page, per_page))
+    log_type = request.args.get("type", None, type=str)
+    return jsonify(models.get_logs(page, per_page, log_type=log_type))
 
 
 @app.route("/api/logs/size", methods=["GET"])

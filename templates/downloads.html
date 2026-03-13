@@ -616,31 +616,51 @@
             transform: scale(0.96);
         }
 
-        .btn-load-more {
-            display: block;
-            width: 100%;
-            padding: 1rem;
-            margin-top: 1rem;
-            border: 1px dashed var(--border-glass);
-            border-radius: var(--radius);
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1.25rem;
+            flex-wrap: wrap;
+        }
+
+        .pagination-info {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+
+        .pagination button {
             background: var(--surface-glass);
             backdrop-filter: blur(10px);
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 0.95rem;
+            border: 1px solid var(--border-glass);
+            color: var(--text-dim);
+            padding: 0.5rem 0.85rem;
+            border-radius: 10px;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            min-width: 38px;
         }
 
-        .btn-load-more:hover {
+        .pagination button:hover:not(:disabled) {
             background: rgba(16, 185, 129, 0.1);
             border-color: var(--primary);
-            box-shadow: var(--glow);
-            transform: translateY(-2px);
+            color: var(--primary);
         }
 
-        .btn-load-more:active {
-            transform: scale(0.98);
+        .pagination button.active {
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            color: white;
+            border-color: transparent;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
 
         .btn-clear-history {
@@ -815,11 +835,7 @@
                 </button>
             </div>
             <div id="downloadHistory"></div>
-            <div id="historyLoadMore" style="display:none;">
-                <button class="btn-load-more" onclick="loadMoreHistory()">
-                    <i class="fa-solid fa-chevron-down"></i> Load More (<span id="historyRemaining">0</span> remaining)
-                </button>
-            </div>
+            <div id="historyPagination"></div>
         </div>
     </div>
 
@@ -977,9 +993,10 @@
             }).join('');
         }
 
-        const HISTORY_PER_PAGE = 25;
-        let allHistory = [];
-        let historyDisplayed = 0;
+        const HISTORY_PER_PAGE = 50;
+        let historyCurrentPage = 1;
+        let historyTotalPages = 1;
+        let historyTotal = 0;
 
         function renderHistoryItem(item) {
             let statusClass, iconClass, label;
@@ -1001,6 +1018,8 @@
                 iconClass = 'fa-solid fa-check';
                 label = '';
             }
+            // All values are escaped via escapeHtml; statusClass and iconClass
+            // are derived from hardcoded string literals above, not user input.
             return `
                 <div class="history-item history-${statusClass}">
                     <div class="status-icon ${statusClass}">
@@ -1008,50 +1027,123 @@
                     </div>
                     <div class="history-info">
                         <div class="history-title">${escapeHtml(item.album_title || 'Unknown')}</div>
-                        <div class="history-meta">${escapeHtml(item.artist_name || 'Unknown Artist')} • ${new Date(item.timestamp * 1000).toLocaleString()}</div>
+                        <div class="history-meta">${escapeHtml(item.artist_name || 'Unknown Artist')} \u2022 ${new Date(item.timestamp * 1000).toLocaleString()}</div>
                         ${label}
                     </div>
                 </div>
             `;
         }
 
-        function updateHistoryLoadMore() {
-            const loadMoreDiv = document.getElementById('historyLoadMore');
-            const remaining = allHistory.length - historyDisplayed;
-            if (remaining > 0) {
-                document.getElementById('historyRemaining').textContent = remaining;
-                loadMoreDiv.style.display = 'block';
-            } else {
-                loadMoreDiv.style.display = 'none';
+        // Builds a compact array of page numbers with ellipsis gaps.
+        function buildPageNumbers(current, total) {
+            if (total <= 7) {
+                return Array.from({length: total}, (_, i) => i + 1);
             }
+            const pages = [1];
+            if (current > 3) pages.push('...');
+            const lo = Math.max(2, current - 1);
+            const hi = Math.min(total - 1, current + 1);
+            for (let i = lo; i <= hi; i++) pages.push(i);
+            if (current < total - 2) pages.push('...');
+            pages.push(total);
+            return pages;
         }
 
-        function loadMoreHistory() {
-            const container = document.getElementById('downloadHistory');
-            const nextBatch = allHistory.slice(historyDisplayed, historyDisplayed + HISTORY_PER_PAGE);
-            container.insertAdjacentHTML('beforeend', nextBatch.map(renderHistoryItem).join(''));
-            historyDisplayed += nextBatch.length;
-            updateHistoryLoadMore();
+        // Renders prev/next pagination bar into a container element.
+        // goToPageFn is a string naming the global function to call.
+        function renderPagination(
+            containerId, currentPage, totalPages,
+            total, perPage, goToPageFn
+        ) {
+            const wrapper = document.getElementById(containerId);
+            wrapper.textContent = '';
+            if (totalPages <= 1) return;
+
+            const start = (currentPage - 1) * perPage + 1;
+            const end = Math.min(currentPage * perPage, total);
+
+            const info = document.createElement('div');
+            info.className = 'pagination-info';
+            info.textContent = `Showing ${start}\u2013${end} of ${total}`;
+            wrapper.appendChild(info);
+
+            const nav = document.createElement('div');
+            nav.className = 'pagination';
+
+            const makeFaIcon = (cls) => {
+                const i = document.createElement('i');
+                i.className = cls;
+                return i;
+            };
+
+            const prevBtn = document.createElement('button');
+            prevBtn.disabled = currentPage <= 1;
+            prevBtn.appendChild(makeFaIcon('fa-solid fa-chevron-left'));
+            prevBtn.addEventListener('click', () => window[goToPageFn](currentPage - 1));
+            nav.appendChild(prevBtn);
+
+            for (const p of buildPageNumbers(currentPage, totalPages)) {
+                if (p === '...') {
+                    const ellipsis = document.createElement('span');
+                    ellipsis.style.cssText = 'color:var(--text-dim);padding:0 0.25rem;';
+                    ellipsis.textContent = '\u2026';
+                    nav.appendChild(ellipsis);
+                } else {
+                    const btn = document.createElement('button');
+                    btn.textContent = p;
+                    if (p === currentPage) btn.className = 'active';
+                    btn.addEventListener('click', () => window[goToPageFn](p));
+                    nav.appendChild(btn);
+                }
+            }
+
+            const nextBtn = document.createElement('button');
+            nextBtn.disabled = currentPage >= totalPages;
+            nextBtn.appendChild(makeFaIcon('fa-solid fa-chevron-right'));
+            nextBtn.addEventListener('click', () => window[goToPageFn](currentPage + 1));
+            nav.appendChild(nextBtn);
+
+            wrapper.appendChild(nav);
+        }
+
+        function goToHistoryPage(page) {
+            if (page < 1 || page > historyTotalPages) return;
+            historyCurrentPage = page;
+            updateHistory();
         }
 
         async function updateHistory() {
-            const res = await fetch('/api/download/history');
-            const history = await res.json();
+            const url = `/api/download/history?page=${historyCurrentPage}&per_page=${HISTORY_PER_PAGE}`;
+            const res = await fetch(url);
+            const data = await res.json();
             const container = document.getElementById('downloadHistory');
             const clearBtn = document.getElementById('clearHistoryBtn');
 
-            if (history.length === 0) {
-                container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-history"></i><p>No download history</p></div>';
-                document.getElementById('historyLoadMore').style.display = 'none';
+            historyTotal = data.total;
+            historyTotalPages = data.pages;
+            historyCurrentPage = data.page;
+
+            if (data.total === 0) {
+                container.textContent = '';
+                const empty = document.createElement('div');
+                empty.className = 'empty-state';
+                empty.innerHTML = '<i class="fa-solid fa-history"></i><p>No download history</p>';
+                container.appendChild(empty);
+                document.getElementById('historyPagination').textContent = '';
                 clearBtn.style.display = 'none';
                 return;
             }
 
             clearBtn.style.display = 'flex';
-            allHistory = history.reverse();
-            historyDisplayed = Math.min(HISTORY_PER_PAGE, allHistory.length);
-            container.innerHTML = allHistory.slice(0, historyDisplayed).map(renderHistoryItem).join('');
-            updateHistoryLoadMore();
+            // Items are already sorted newest-first by the API.
+            // renderHistoryItem only interpolates escapeHtml()-sanitised
+            // values and hardcoded class literals, so this is safe.
+            container.innerHTML = data.items.map(renderHistoryItem).join('');
+            renderPagination(
+                'historyPagination', historyCurrentPage,
+                historyTotalPages, historyTotal,
+                HISTORY_PER_PAGE, 'goToHistoryPage'
+            );
         }
 
         async function clearAllHistory() {
