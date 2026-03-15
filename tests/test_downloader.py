@@ -1,6 +1,13 @@
+from unittest.mock import patch
+
 import pytest
 
-from downloader import _check_forbidden, _is_official_channel, _title_similarity
+from downloader import (
+    _check_forbidden,
+    _is_official_channel,
+    _title_similarity,
+    download_track_youtube,
+)
 
 
 class TestTitleSimilarity:
@@ -121,3 +128,50 @@ class TestCheckForbidden:
     def test_empty_forbidden_list(self):
         result = _check_forbidden("any title", "any title", [])
         assert result is None
+
+
+class TestDownloadTrackYoutubeReturnType:
+    """download_track_youtube returns metadata dict, not True/string."""
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    def test_success_returns_metadata_dict(self, mock_ydl_class):
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [{
+                "url": "https://youtube.com/watch?v=abc",
+                "title": "Artist - Track",
+                "duration": 240,
+                "channel": "ArtistVEVO",
+                "view_count": 1000000,
+            }],
+        }
+        mock_ydl.download.return_value = 0
+
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "test")
+            open(out + ".mp3", "w").close()
+            result = download_track_youtube(
+                "Artist Track official audio", out, "Track", 240000,
+            )
+        assert isinstance(result, dict)
+        assert result["success"] is True
+        assert "youtube_url" in result
+        assert "youtube_title" in result
+        assert "match_score" in result
+        assert "duration_seconds" in result
+
+    def test_no_candidates_returns_failure_dict(self):
+        with patch("downloader.yt_dlp.YoutubeDL") as mock_ydl_class:
+            mock_ydl = (
+                mock_ydl_class.return_value.__enter__.return_value
+            )
+            mock_ydl.extract_info.return_value = {"entries": []}
+
+            result = download_track_youtube(
+                "Nonexistent Track", "/tmp/out", "Track", 240000,
+            )
+        assert isinstance(result, dict)
+        assert result["success"] is False
+        assert "error_message" in result

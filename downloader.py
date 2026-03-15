@@ -287,16 +287,22 @@ def download_track_youtube(
         except Exception as e:
             logger.error(f'   Search failed for "{sq}": {e}')
             if qi == len(search_queries) - 1 and not candidates:
-                return f"Search failed: {str(e)[:120]}"
+                return {
+                    "success": False,
+                    "error_message": f"Search failed: {str(e)[:120]}",
+                }
 
     if not candidates:
         logger.warning(
             "   No suitable candidates found after all search attempts"
         )
-        return (
-            "No suitable YouTube match found"
-            " (filtered by duration/forbidden words)"
-        )
+        return {
+            "success": False,
+            "error_message": (
+                "No suitable YouTube match found"
+                " (filtered by duration/forbidden words)"
+            ),
+        }
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
     best = candidates[0]
@@ -337,7 +343,13 @@ def download_track_youtube(
             try:
                 with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
                     ydl_dl.download([candidate["url"]])
-                return True
+                return {
+                    "success": True,
+                    "youtube_url": candidate["url"],
+                    "youtube_title": candidate["title"],
+                    "match_score": round(candidate["score"], 4),
+                    "duration_seconds": int(candidate["duration"]),
+                }
             except Exception as e:
                 last_err = e
                 msg = str(e)
@@ -363,8 +375,16 @@ def download_track_youtube(
 
     last_error_msg = str(last_err)[:120] if last_err else "Unknown error"
     if last_err and "403" in str(last_err):
-        return (
-            "HTTP 403 Forbidden"
-            " - try providing/refreshing YouTube cookies"
-        )
-    return f"Download failed after all attempts: {last_error_msg}"
+        return {
+            "success": False,
+            "error_message": (
+                "HTTP 403 Forbidden"
+                " - try providing/refreshing YouTube cookies"
+            ),
+        }
+    return {
+        "success": False,
+        "error_message": (
+            f"Download failed after all attempts: {last_error_msg}"
+        ),
+    }
