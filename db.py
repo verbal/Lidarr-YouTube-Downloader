@@ -94,17 +94,49 @@ CREATE INDEX IF NOT EXISTS idx_queue_position
 """
 
 
+_LEGACY_TABLES = (
+    "download_attempts", "download_logs", "failed_tracks",
+    "download_queue", "download_history", "excluded_tracks", "banned_urls",
+)
+
+
+def _drop_legacy_tables(conn):
+    """Drop tables from pre-versioned database so V1 schema can be applied.
+
+    The old db.py (feature/track-history) created tables with incompatible
+    columns (e.g. download_logs.log_type vs .type). Since there is no
+    schema_version table, we know JSON files are the source of truth and
+    these tables can be safely replaced.
+    """
+    existing = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    dropped = [t for t in _LEGACY_TABLES if t in existing]
+    if dropped:
+        logger.warning(
+            "Dropping legacy tables from pre-versioned database: %s",
+            ", ".join(dropped),
+        )
+        for table in dropped:
+            conn.execute(f"DROP TABLE {table}")
+        conn.commit()
+
+
 def init_db():
     """Initialize the database schema, running migrations if needed."""
     db_dir = os.path.dirname(DB_PATH)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
     conn = get_db()
-    row = conn.execute(
+    has_version_table = conn.execute(
         "SELECT name FROM sqlite_master"
         " WHERE type='table' AND name='schema_version'"
     ).fetchone()
-    if row is None:
+    if has_version_table is None:
+        _drop_legacy_tables(conn)
         conn.executescript(_SCHEMA_V1)
         conn.execute(
             "INSERT INTO schema_version (version, applied_at)"
