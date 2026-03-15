@@ -1,11 +1,9 @@
 """Data access layer for SQLite-backed persistence.
 
 This is the ONLY module that writes SQL. All other modules call these
-functions to read/write download history, logs, failed tracks, and the
-download queue.
+functions to read/write track downloads, logs, and the download queue.
 """
 
-import json
 import logging
 import math
 import time
@@ -39,50 +37,147 @@ def _paginate(query, count_query, params, page, per_page):
     }
 
 
-# --- History ---
+# --- Track Downloads ---
 
 
-def add_history_entry(
-    album_id, album_title, artist_name, success, partial,
-    manual=False, track_title=None,
+def add_track_download(
+    album_id, album_title, artist_name, track_title, track_number,
+    success, error_message, youtube_url, youtube_title, match_score,
+    duration_seconds, album_path, lidarr_album_path, cover_url,
 ):
-    """Record a completed download attempt."""
+    """Record a single track download attempt."""
     conn = db.get_db()
     conn.execute(
-        """INSERT INTO download_history
-           (album_id, album_title, artist_name, success, partial,
-            manual, track_title, timestamp)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO track_downloads
+           (album_id, album_title, artist_name, track_title,
+            track_number, success, error_message, youtube_url,
+            youtube_title, match_score, duration_seconds,
+            album_path, lidarr_album_path, cover_url, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            album_id, album_title, artist_name,
-            int(success), int(partial), int(manual),
-            track_title, time.time(),
+            album_id, album_title, artist_name, track_title,
+            track_number, int(success), error_message, youtube_url,
+            youtube_title, match_score, duration_seconds,
+            album_path, lidarr_album_path, cover_url, time.time(),
         ),
     )
     conn.commit()
 
 
-def get_history(page=1, per_page=50):
-    """Return paginated download history, newest first."""
-    result = _paginate(
-        "SELECT * FROM download_history ORDER BY timestamp DESC",
-        "SELECT COUNT(*) FROM download_history",
-        (), page, per_page,
-    )
-    for item in result["items"]:
-        item["success"] = bool(item["success"])
-        item["partial"] = bool(item["partial"])
-        item["manual"] = bool(item["manual"])
-    return result
+def get_track_downloads_for_album(album_id):
+    """Return all track download records for an album, newest first."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT * FROM track_downloads"
+        " WHERE album_id = ? ORDER BY timestamp DESC",
+        (album_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_album_history(page=1, per_page=50):
+    """Return album-grouped download summaries, newest first."""
+    query = """
+        SELECT
+            album_id,
+            album_title,
+            artist_name,
+            cover_url,
+            MAX(timestamp) as latest_timestamp,
+            SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count,
+            SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as fail_count,
+            COUNT(*) as total_count
+        FROM track_downloads
+        GROUP BY album_id, album_title, artist_name
+        ORDER BY latest_timestamp DESC
+    """
+    count_query = """
+        SELECT COUNT(DISTINCT album_id) FROM track_downloads
+    """
+    conn = db.get_db()
+    total = conn.execute(count_query).fetchone()[0]
+    pages = max(1, math.ceil(total / per_page))
+    page = max(1, min(page, pages))
+    offset = (page - 1) * per_page
+    rows = conn.execute(
+        query + " LIMIT ? OFFSET ?", (per_page, offset)
+    ).fetchall()
+    return {
+        "items": [dict(row) for row in rows],
+        "total": total,
+        "page": page,
+        "pages": pages,
+        "per_page": per_page,
+    }
+
+
+def get_failed_tracks_for_retry(album_id):
+    """Return failed tracks for retry UI.
+
+    Returns tracks where the latest attempt for that track has
+    success=0. Includes album context from the most recent row.
+    """
+    conn = db.get_db()
+    context_row = conn.execute(
+        "SELECT album_title, artist_name, cover_url,"
+        " album_path, lidarr_album_path"
+        " FROM track_downloads WHERE album_id = ?"
+        " ORDER BY timestamp DESC LIMIT 1",
+        (album_id,),
+    ).fetchone()
+    if context_row is None:
+        return {
+            "failed_tracks": [],
+            "album_id": album_id,
+            "album_title": "",
+            "artist_name": "",
+            "cover_url": "",
+            "album_path": "",
+            "lidarr_album_path": "",
+        }
+    # Get the latest attempt per track
+    rows = conn.execute(
+        """
+        SELECT t1.track_title, t1.track_number, t1.error_message
+        FROM track_downloads t1
+        INNER JOIN (
+            SELECT track_title, MAX(timestamp) as max_ts
+            FROM track_downloads
+            WHERE album_id = ?
+            GROUP BY track_title
+        ) t2 ON t1.track_title = t2.track_title
+            AND t1.timestamp = t2.max_ts
+        WHERE t1.album_id = ? AND t1.success = 0
+        ORDER BY t1.track_number
+        """,
+        (album_id, album_id),
+    ).fetchall()
+    ctx = dict(context_row)
+    return {
+        "failed_tracks": [
+            {
+                "title": row["track_title"],
+                "reason": row["error_message"],
+                "track_num": row["track_number"],
+            }
+            for row in rows
+        ],
+        "album_id": album_id,
+        "album_title": ctx["album_title"],
+        "artist_name": ctx["artist_name"],
+        "cover_url": ctx["cover_url"],
+        "album_path": ctx["album_path"],
+        "lidarr_album_path": ctx["lidarr_album_path"],
+    }
 
 
 def get_history_count_today():
-    """Count successful downloads since midnight today."""
+    """Count distinct albums with successful tracks since midnight."""
     now = datetime.now()
     today_start = datetime(now.year, now.month, now.day).timestamp()
     conn = db.get_db()
     row = conn.execute(
-        "SELECT COUNT(*) FROM download_history"
+        "SELECT COUNT(DISTINCT album_id) FROM track_downloads"
         " WHERE success = 1 AND timestamp >= ?",
         (today_start,),
     ).fetchone()
@@ -90,10 +185,10 @@ def get_history_count_today():
 
 
 def get_history_album_ids_since(since_timestamp):
-    """Return set of album IDs with successful downloads since timestamp."""
+    """Return set of album IDs with successful tracks since timestamp."""
     conn = db.get_db()
     rows = conn.execute(
-        "SELECT DISTINCT album_id FROM download_history"
+        "SELECT DISTINCT album_id FROM track_downloads"
         " WHERE success = 1 AND timestamp >= ?",
         (since_timestamp,),
     ).fetchall()
@@ -101,9 +196,9 @@ def get_history_album_ids_since(since_timestamp):
 
 
 def clear_history():
-    """Delete all download history entries."""
+    """Delete all track download records."""
     conn = db.get_db()
-    conn.execute("DELETE FROM download_history")
+    conn.execute("DELETE FROM track_downloads")
     conn.commit()
 
 
@@ -112,20 +207,23 @@ def clear_history():
 
 def add_log(
     log_type, album_id, album_title, artist_name,
-    details="", failed_tracks=None, total_file_size=0,
+    details="", total_file_size=0, track_number=None,
 ):
     """Create a download log entry. Returns the generated log ID."""
     conn = db.get_db()
-    log_id = f"{int(time.time() * 1000)}_{album_id}"
+    ts = int(time.time() * 1000)
+    if track_number is not None:
+        log_id = f"{ts}_{album_id}_{track_number}"
+    else:
+        log_id = f"{ts}_{album_id}"
     conn.execute(
         """INSERT INTO download_logs
            (id, type, album_id, album_title, artist_name, timestamp,
-            details, failed_tracks, total_file_size)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            details, total_file_size)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             log_id, log_type, album_id, album_title, artist_name,
-            time.time(), details,
-            json.dumps(failed_tracks or []), total_file_size,
+            time.time(), details, total_file_size,
         ),
     )
     conn.commit()
@@ -133,13 +231,7 @@ def add_log(
 
 
 def get_logs(page=1, per_page=50, log_type=None):
-    """Return paginated download logs, newest first.
-
-    Args:
-        page: Page number (1-based).
-        per_page: Items per page.
-        log_type: Optional log type filter (e.g. 'album_error').
-    """
+    """Return paginated download logs, newest first."""
     if log_type:
         query = (
             "SELECT * FROM download_logs"
@@ -153,10 +245,7 @@ def get_logs(page=1, per_page=50, log_type=None):
         query = "SELECT * FROM download_logs ORDER BY timestamp DESC"
         count_query = "SELECT COUNT(*) FROM download_logs"
         params = ()
-    result = _paginate(query, count_query, params, page, per_page)
-    for item in result["items"]:
-        item["failed_tracks"] = json.loads(item["failed_tracks"])
-    return result
+    return _paginate(query, count_query, params, page, per_page)
 
 
 def delete_log(log_id):
@@ -180,93 +269,9 @@ def get_logs_db_size():
     """Estimate the storage used by log text fields."""
     conn = db.get_db()
     row = conn.execute(
-        "SELECT SUM(LENGTH(details) + LENGTH(failed_tracks))"
-        " FROM download_logs"
+        "SELECT SUM(LENGTH(details)) FROM download_logs"
     ).fetchone()
     return row[0] or 0
-
-
-# --- Failed tracks ---
-
-
-def save_failed_tracks(
-    album_id, album_title, artist_name, cover_url,
-    album_path, lidarr_album_path, tracks,
-):
-    """Replace all failed tracks with a new set."""
-    conn = db.get_db()
-    conn.execute("DELETE FROM failed_tracks")
-    for t in tracks:
-        conn.execute(
-            """INSERT INTO failed_tracks
-               (album_id, album_title, artist_name, cover_url,
-                album_path, lidarr_album_path, track_title,
-                track_num, reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                album_id, album_title, artist_name, cover_url,
-                album_path, lidarr_album_path,
-                t["title"], t.get("track_num", 0), t.get("reason", ""),
-            ),
-        )
-    conn.commit()
-
-
-def get_failed_tracks():
-    """Return all failed track rows as dicts."""
-    conn = db.get_db()
-    rows = conn.execute("SELECT * FROM failed_tracks").fetchall()
-    return [dict(row) for row in rows]
-
-
-def get_failed_tracks_context():
-    """Return failed tracks with album context for retry UI."""
-    conn = db.get_db()
-    row = conn.execute("SELECT * FROM failed_tracks LIMIT 1").fetchone()
-    if row is None:
-        return {
-            "failed_tracks": [],
-            "album_id": None,
-            "album_title": "",
-            "artist_name": "",
-            "cover_url": "",
-            "album_path": "",
-            "lidarr_album_path": "",
-        }
-    tracks = get_failed_tracks()
-    return {
-        "failed_tracks": [
-            {
-                "title": t["track_title"],
-                "reason": t["reason"],
-                "track_num": t["track_num"],
-            }
-            for t in tracks
-        ],
-        "album_id": row["album_id"],
-        "album_title": row["album_title"],
-        "artist_name": row["artist_name"],
-        "cover_url": row["cover_url"],
-        "album_path": row["album_path"],
-        "lidarr_album_path": row["lidarr_album_path"],
-    }
-
-
-def remove_failed_track(track_title):
-    """Remove a single failed track by title (case-insensitive)."""
-    conn = db.get_db()
-    conn.execute(
-        "DELETE FROM failed_tracks WHERE LOWER(track_title) = LOWER(?)",
-        (track_title,),
-    )
-    conn.commit()
-
-
-def clear_failed_tracks():
-    """Delete all failed track entries."""
-    conn = db.get_db()
-    conn.execute("DELETE FROM failed_tracks")
-    conn.commit()
 
 
 # --- Queue ---

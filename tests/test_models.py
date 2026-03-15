@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 import db
@@ -13,65 +15,219 @@ def temp_db(tmp_path, monkeypatch):
     db.close_db()
 
 
-# --- History ---
+# --- Track Downloads ---
 
 
-def test_add_and_get_history():
-    models.add_history_entry(1, "Album1", "Artist1", True, False)
-    result = models.get_history(page=1, per_page=50)
+def test_add_track_download():
+    models.add_track_download(
+        album_id=1, album_title="Album1", artist_name="Artist1",
+        track_title="Track1", track_number=1, success=True,
+        error_message="", youtube_url="https://youtube.com/watch?v=abc",
+        youtube_title="Artist1 - Track1", match_score=0.92,
+        duration_seconds=240, album_path="/downloads/a",
+        lidarr_album_path="/music/a", cover_url="http://cover.jpg",
+    )
+    tracks = models.get_track_downloads_for_album(1)
+    assert len(tracks) == 1
+    assert tracks[0]["track_title"] == "Track1"
+    assert tracks[0]["youtube_url"] == "https://youtube.com/watch?v=abc"
+    assert tracks[0]["success"] == 1
+
+
+def test_get_track_downloads_for_album_ordered_newest_first():
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    time.sleep(0.01)
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T2", track_number=2, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    tracks = models.get_track_downloads_for_album(1)
+    assert tracks[0]["track_title"] == "T2"
+
+
+def test_get_album_history_grouped():
+    models.add_track_download(
+        album_id=1, album_title="Album1", artist_name="Artist1",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="",
+        cover_url="http://cover1.jpg",
+    )
+    models.add_track_download(
+        album_id=1, album_title="Album1", artist_name="Artist1",
+        track_title="T2", track_number=2, success=False,
+        error_message="no match", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="",
+        cover_url="http://cover1.jpg",
+    )
+    result = models.get_album_history(page=1, per_page=50)
     assert result["total"] == 1
-    assert result["items"][0]["album_title"] == "Album1"
+    item = result["items"][0]
+    assert item["album_id"] == 1
+    assert item["success_count"] == 1
+    assert item["fail_count"] == 1
+    assert item["total_count"] == 2
 
 
-def test_history_pagination():
-    for i in range(75):
-        models.add_history_entry(i, f"Album{i}", "Artist", True, False)
-    page1 = models.get_history(page=1, per_page=50)
-    page2 = models.get_history(page=2, per_page=50)
-    assert page1["total"] == 75
-    assert page1["pages"] == 2
-    assert len(page1["items"]) == 50
-    assert len(page2["items"]) == 25
+def test_get_album_history_pagination():
+    for i in range(3):
+        models.add_track_download(
+            album_id=i, album_title=f"Album{i}", artist_name="A",
+            track_title="T1", track_number=1, success=True,
+            error_message="", youtube_url="", youtube_title="",
+            match_score=0.0, duration_seconds=0,
+            album_path="", lidarr_album_path="", cover_url="",
+        )
+    result = models.get_album_history(page=1, per_page=2)
+    assert result["total"] == 3
+    assert result["pages"] == 2
+    assert len(result["items"]) == 2
 
 
-def test_history_ordered_newest_first():
-    models.add_history_entry(1, "Old", "A", True, False)
-    models.add_history_entry(2, "New", "A", True, False)
-    result = models.get_history()
-    assert result["items"][0]["album_title"] == "New"
+def test_get_failed_tracks_for_retry():
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="Ar",
+        track_title="T1", track_number=1, success=False,
+        error_message="no match", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="/dl/a", lidarr_album_path="/music/a",
+        cover_url="http://cover.jpg",
+    )
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="Ar",
+        track_title="T2", track_number=2, success=True,
+        error_message="", youtube_url="http://yt/1", youtube_title="vid",
+        match_score=0.9, duration_seconds=200,
+        album_path="/dl/a", lidarr_album_path="/music/a",
+        cover_url="http://cover.jpg",
+    )
+    result = models.get_failed_tracks_for_retry(1)
+    assert result["album_id"] == 1
+    assert result["album_path"] == "/dl/a"
+    assert len(result["failed_tracks"]) == 1
+    assert result["failed_tracks"][0]["title"] == "T1"
+
+
+def test_get_failed_tracks_for_retry_latest_success_hides_old_failure():
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="Ar",
+        track_title="T1", track_number=1, success=False,
+        error_message="no match", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="/dl/a", lidarr_album_path="/music/a",
+        cover_url="",
+    )
+    time.sleep(0.01)
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="Ar",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="http://yt/1", youtube_title="vid",
+        match_score=0.9, duration_seconds=200,
+        album_path="/dl/a", lidarr_album_path="/music/a",
+        cover_url="",
+    )
+    result = models.get_failed_tracks_for_retry(1)
+    assert len(result["failed_tracks"]) == 0
+
+
+def test_get_history_count_today():
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T2", track_number=2, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    models.add_track_download(
+        album_id=2, album_title="B", artist_name="A",
+        track_title="T1", track_number=1, success=False,
+        error_message="fail", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    assert models.get_history_count_today() == 1
+
+
+def test_get_history_album_ids_since():
+    now = time.time()
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    models.add_track_download(
+        album_id=2, album_title="B", artist_name="A",
+        track_title="T1", track_number=1, success=False,
+        error_message="fail", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    result = models.get_history_album_ids_since(now - 10)
+    assert result == {1}
 
 
 def test_clear_history():
-    models.add_history_entry(1, "A", "A", True, False)
-    models.clear_history()
-    assert models.get_history()["total"] == 0
-
-
-def test_history_manual_fields():
-    models.add_history_entry(
-        1, "A", "A", True, False, manual=True, track_title="Track1"
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
     )
-    item = models.get_history()["items"][0]
-    assert item["manual"] is True
-    assert item["track_title"] == "Track1"
+    models.clear_history()
+    result = models.get_album_history(page=1, per_page=50)
+    assert result["total"] == 0
 
 
-# --- Logs ---
+# --- Logs (updated -- no failed_tracks) ---
 
 
-def test_add_and_get_logs():
-    models.add_log("download_success", 1, "Album", "Artist", details="ok")
+def test_add_log_no_failed_tracks():
+    log_id = models.add_log(
+        "download_success", 1, "Album", "Artist", details="ok"
+    )
+    assert log_id is not None
     result = models.get_logs(page=1, per_page=50)
     assert result["total"] == 1
-    assert result["items"][0]["type"] == "download_success"
+    item = result["items"][0]
+    assert item["type"] == "download_success"
+    assert "failed_tracks" not in item
 
 
-def test_log_failed_tracks_json():
-    tracks = [{"title": "T1", "reason": "fail", "track_num": 1}]
-    models.add_log("partial_success", 1, "A", "A", failed_tracks=tracks)
-    item = models.get_logs()["items"][0]
-    assert isinstance(item["failed_tracks"], list)
-    assert item["failed_tracks"][0]["title"] == "T1"
+def test_add_log_track_level_id():
+    log_id = models.add_log(
+        "track_success", 1, "Album", "Artist",
+        details="ok", track_number=3,
+    )
+    assert "_1_3" in log_id
+
+
+def test_get_logs_filter_by_type():
+    models.add_log("download_success", 1, "A", "A", details="ok")
+    models.add_log("album_error", 2, "B", "B", details="fail")
+    result = models.get_logs(page=1, per_page=50, log_type="album_error")
+    assert result["total"] == 1
+    assert result["items"][0]["type"] == "album_error"
 
 
 def test_delete_log():
@@ -91,38 +247,13 @@ def test_clear_logs():
     assert models.get_logs()["total"] == 0
 
 
-# --- Failed tracks ---
+def test_get_logs_db_size():
+    models.add_log("download_success", 1, "A", "A", details="some text")
+    size = models.get_logs_db_size()
+    assert size > 0
 
 
-def test_save_and_get_failed_tracks():
-    tracks = [{"title": "T1", "track_num": 1, "reason": "no match"}]
-    models.save_failed_tracks(
-        1, "Album", "Artist", "http://cover", "/path", "/lidarr", tracks
-    )
-    result = models.get_failed_tracks()
-    assert len(result) == 1
-    assert result[0]["track_title"] == "T1"
-    assert result[0]["album_title"] == "Album"
-
-
-def test_clear_failed_tracks():
-    tracks = [{"title": "T1", "track_num": 1, "reason": "no match"}]
-    models.save_failed_tracks(1, "A", "A", "", "", "", tracks)
-    models.clear_failed_tracks()
-    assert len(models.get_failed_tracks()) == 0
-
-
-def test_save_failed_tracks_replaces_previous():
-    tracks1 = [{"title": "T1", "track_num": 1, "reason": "fail"}]
-    tracks2 = [{"title": "T2", "track_num": 2, "reason": "fail2"}]
-    models.save_failed_tracks(1, "A", "A", "", "", "", tracks1)
-    models.save_failed_tracks(2, "B", "B", "", "", "", tracks2)
-    result = models.get_failed_tracks()
-    assert len(result) == 1
-    assert result[0]["track_title"] == "T2"
-
-
-# --- Queue ---
+# --- Queue (unchanged) ---
 
 
 def test_enqueue_and_get_queue():
@@ -176,34 +307,18 @@ def test_clear_queue():
     assert len(models.get_queue()) == 0
 
 
-def test_get_history_count_today():
-    models.add_history_entry(1, "A", "A", True, False)
-    models.add_history_entry(2, "B", "B", False, False)
-    assert models.get_history_count_today() == 1
-
-
-def test_get_history_album_ids_since():
-    import time
-
-    now = time.time()
-    models.add_history_entry(1, "A", "A", True, False)
-    models.add_history_entry(2, "B", "B", True, False)
-    models.add_history_entry(3, "C", "C", False, False)
-    result = models.get_history_album_ids_since(now - 10)
-    assert result == {1, 2}
-    assert 3 not in result
-
-
 def test_get_history_album_ids_since_empty():
-    import time
-
     result = models.get_history_album_ids_since(time.time() - 10)
     assert result == set()
 
 
 def test_get_history_album_ids_since_future_timestamp():
-    import time
-
-    models.add_history_entry(1, "A", "A", True, False)
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
     result = models.get_history_album_ids_since(time.time() + 3600)
     assert result == set()
