@@ -29,7 +29,7 @@ def client(tmp_path, monkeypatch):
 
     from app import app
 
-    app.config["TESTING"] = True
+    app.config["TESTING"] = True  # nosemgrep
     with app.test_client() as c:
         yield c
 
@@ -422,6 +422,139 @@ class TestTemplateRoutes:
     def test_logs_page(self, client):
         resp = client.get("/logs")
         assert resp.status_code == 200
+
+
+class TestSkipTrackRoute:
+    """POST /api/download/skip-track sets skip flag."""
+
+    def test_skip_no_active_download(self, client):
+        resp = client.post("/api/download/skip-track",
+                           json={"track_index": 0})
+        assert resp.status_code == 409
+
+    def test_skip_invalid_index(self, client):
+        from processing import download_process
+        download_process["active"] = True
+        download_process["tracks"] = [
+            {"track_title": "T1", "track_number": 1, "status": "pending",
+             "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        try:
+            resp = client.post("/api/download/skip-track",
+                               json={"track_index": 5})
+            assert resp.status_code == 400
+        finally:
+            download_process["active"] = False
+            download_process["tracks"] = []
+
+    def test_skip_valid_index(self, client):
+        from processing import download_process
+        download_process["active"] = True
+        download_process["tracks"] = [
+            {"track_title": "T1", "track_number": 1, "status": "pending",
+             "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        try:
+            resp = client.post("/api/download/skip-track",
+                               json={"track_index": 0})
+            assert resp.status_code == 200
+            assert download_process["tracks"][0]["skip"] is True
+        finally:
+            download_process["active"] = False
+            download_process["tracks"] = []
+
+    def test_skip_missing_track_index(self, client):
+        from processing import download_process
+        download_process["active"] = True
+        download_process["tracks"] = [
+            {"track_title": "T1", "track_number": 1, "status": "pending",
+             "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        try:
+            resp = client.post("/api/download/skip-track", json={})
+            assert resp.status_code == 400
+        finally:
+            download_process["active"] = False
+            download_process["tracks"] = []
+
+
+class TestQueueTracksRoute:
+    """GET /api/download/queue/<album_id>/tracks returns track list."""
+
+    @patch("app.lidarr_request")
+    def test_returns_tracks_from_lidarr(self, mock_lidarr, client):
+        mock_lidarr.return_value = [
+            {"title": "Track 1", "trackNumber": 1, "hasFile": False},
+            {"title": "Track 2", "trackNumber": 2, "hasFile": True},
+        ]
+        resp = client.get("/api/download/queue/123/tracks")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data) == 2
+        assert data[0]["title"] == "Track 1"
+        assert data[0]["track_number"] == 1
+        assert data[0]["has_file"] is False
+        assert data[1]["has_file"] is True
+
+    @patch("app.lidarr_request")
+    @patch("app.get_itunes_tracks")
+    def test_falls_back_to_itunes(self, mock_itunes, mock_lidarr, client):
+        mock_lidarr.return_value = []
+        mock_itunes.return_value = [
+            {"title": "iTunes Track", "trackNumber": 1},
+        ]
+        from app import album_cache
+        import time as time_mod
+        album_cache[123] = (
+            {"title": "Album", "artist": {"artistName": "Artist"}},
+            time_mod.time(),
+        )
+        try:
+            resp = client.get("/api/download/queue/123/tracks")
+            assert resp.status_code == 200
+            data = resp.get_json()
+            assert len(data) == 1
+            assert data[0]["title"] == "iTunes Track"
+        finally:
+            album_cache.pop(123, None)
+
+    @patch("app.lidarr_request")
+    def test_empty_when_no_tracks(self, mock_lidarr, client):
+        mock_lidarr.side_effect = lambda path, **kw: (
+            {"error": "not found"} if "album/" in path else []
+        )
+        resp = client.get("/api/download/queue/999/tracks")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data == []
+
+
+class TestQueueTrackCount:
+    """Queue endpoint includes track_count."""
+
+    @patch("app.lidarr_request")
+    @patch("app.models.get_queue")
+    def test_queue_includes_track_count(self, mock_queue, mock_lidarr, client):
+        mock_queue.return_value = [{"album_id": 123}]
+        mock_lidarr.side_effect = lambda path, **kw: (
+            {"title": "Album", "artist": {"artistName": "Art"},
+             "images": [{"coverType": "cover", "remoteUrl": "http://img"}],
+             "statistics": {"trackCount": 10}}
+            if "album/" in path else
+            [{"title": "T%d" % i, "trackNumber": i, "hasFile": False}
+             for i in range(1, 11)]
+        )
+        resp = client.get("/api/download/queue")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data) == 1
+        assert data[0].get("track_count") == 10
 
 
 class TestMiscRoutes:

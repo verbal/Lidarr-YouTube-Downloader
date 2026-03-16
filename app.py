@@ -279,6 +279,22 @@ def api_download_stop():
     return jsonify({"success": True})
 
 
+@app.route("/api/download/skip-track", methods=["POST"])
+def api_skip_track():
+    data = request.json or {}
+    track_index = data.get("track_index")
+    if track_index is None:
+        return jsonify({"error": "track_index required"}), 400
+    with queue_lock:
+        if not download_process["active"]:
+            return jsonify({"error": "No active download"}), 409
+        tracks = download_process.get("tracks", [])
+        if track_index < 0 or track_index >= len(tracks):
+            return jsonify({"error": "Invalid track_index"}), 400
+        tracks[track_index]["skip"] = True
+    return jsonify({"success": True})
+
+
 @app.route("/api/download/status")
 def api_download_status():
     return jsonify(get_download_status())
@@ -310,6 +326,7 @@ def api_download_stream():
                                 "title": album.get("title", ""),
                                 "artist": album.get("artist", {}).get("artistName", ""),
                                 "cover_url": cover_url,
+                                "track_count": album.get("statistics", {}).get("trackCount", 0),
                             })
                 data = {
                     "status": dict(download_process),
@@ -349,8 +366,32 @@ def api_get_queue():
                     ),
                     "",
                 ),
+                "track_count": album.get("statistics", {}).get("trackCount", 0),
             })
     return jsonify(queue_with_details)
+
+
+@app.route("/api/download/queue/<int:album_id>/tracks")
+def api_queue_tracks(album_id):
+    tracks = lidarr_request(f"track?albumId={album_id}")
+    if isinstance(tracks, dict) and "error" in tracks:
+        tracks = []
+    if not tracks:
+        album = _get_album_cached(album_id)
+        if "error" not in album:
+            artist = album.get("artist", {}).get("artistName", "")
+            title = album.get("title", "")
+            if artist and title:
+                tracks = get_itunes_tracks(artist, title)
+    result = [
+        {
+            "title": t.get("title", ""),
+            "track_number": t.get("trackNumber", 0),
+            "has_file": t.get("hasFile", False),
+        }
+        for t in tracks
+    ]
+    return jsonify(result)
 
 
 @app.route("/api/download/queue", methods=["POST"])
