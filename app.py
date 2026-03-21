@@ -34,7 +34,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.5.4"
+VERSION = "1.5.5"
 
 
 @app.context_processor
@@ -193,7 +193,7 @@ def load_config():
         ],                        
         "xml_metadata_enabled": os.getenv("XML_METADATA_ENABLED", "true").lower()
         == "true",
-        "forbidden_words": ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute", "reaction"],
+        "forbidden_words": ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute", "reaction", "8d audio", "432hz", "bass boosted", "lofi"],
         "duration_tolerance": int(os.getenv("DURATION_TOLERANCE", "10")),
         "concurrent_tracks": int(os.getenv("CONCURRENT_TRACKS", "2")),
         "yt_cookies_file": os.getenv("YT_COOKIES_FILE", ""),
@@ -458,37 +458,31 @@ def sanitize_filename(name):
 
 
 def download_track_youtube(query, output_path, track_title_original, expected_duration_ms=None):
-    def build_common_opts(player_client=None):
-        cfg = load_config()
+    config = load_config()
+
+    def _build_opts(player_client=None):
         opts = {
             "quiet": True,
             "no_warnings": True,
-            "retries": int(cfg.get("yt_retries", 10)),
-            "fragment_retries": int(cfg.get("yt_fragment_retries", 10)),
-            "sleep_interval_requests": int(cfg.get("yt_sleep_requests", 1)),
-            "sleep_interval": int(cfg.get("yt_sleep_interval", 1)),
-            "max_sleep_interval": int(cfg.get("yt_max_sleep_interval", 5)),
+            "retries": int(config.get("yt_retries", 10)),
+            "fragment_retries": int(config.get("yt_fragment_retries", 10)),
+            "sleep_interval_requests": int(config.get("yt_sleep_requests", 1)),
+            "sleep_interval": int(config.get("yt_sleep_interval", 1)),
+            "max_sleep_interval": int(config.get("yt_max_sleep_interval", 5)),
             "noplaylist": True,
         }
-        cookies_path = (cfg.get("yt_cookies_file") or "").strip()
+        cookies_path = (config.get("yt_cookies_file") or "").strip()
         if cookies_path and os.path.exists(cookies_path):
             opts["cookiefile"] = cookies_path
         elif cookies_path and not os.path.exists(cookies_path):
             logger.warning(f"⚠️ YT_COOKIES_FILE not found: {cookies_path}")
-        if cfg.get("yt_force_ipv4", True):
+        if config.get("yt_force_ipv4", True):
             opts["source_address"] = "0.0.0.0"
         if player_client:
             opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
         return opts
 
-    config = load_config()
-    ydl_opts_search = {
-        **build_common_opts(player_client=config.get("yt_player_client", "android") or None),
-        "format": "bestaudio/best",
-        "extract_flat": True,
-    }
-    candidates = []
-    forbidden_words = config.get("forbidden_words", ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute"])
+    forbidden_words = config.get("forbidden_words", ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute", "reaction", "8d audio", "432hz", "bass boosted", "lofi"])
     duration_tolerance = config.get("duration_tolerance", 10)
 
     expected_duration_sec = None
@@ -496,116 +490,42 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
         expected_duration_sec = expected_duration_ms / 1000.0
         logger.info(f"📏 Expected track duration: {int(expected_duration_sec // 60)}:{int(expected_duration_sec % 60):02d} ({int(expected_duration_sec)}s)")
 
+    base_track = track_title_original
+    base_artist = query.replace(f" {track_title_original} official audio", "").replace(f" {track_title_original}", "").strip()
+    if not base_artist:
+        base_artist = query.split(" ")[0] if " " in query else query
+
+    search_queries = [query]
+    alt_q = f"{base_artist} {base_track}"
+    if alt_q != query:
+        search_queries.append(alt_q)
+    alt_q2 = f"{base_track} {base_artist}"
+    if alt_q2 not in search_queries:
+        search_queries.append(alt_q2)
+
     def _title_similarity(yt_title, track_title, artist_name):
         yt_lower = yt_title.lower()
-        expected_lower = f"{artist_name} {track_title}".lower()
-        score = SequenceMatcher(None, yt_lower, expected_lower).ratio()
-        track_lower = track_title.lower()
-        if track_lower in yt_lower:
+        expected = f"{artist_name} {track_title}".lower()
+        score = SequenceMatcher(None, yt_lower, expected).ratio()
+        if track_title.lower() in yt_lower:
             score += 0.3
         if artist_name.lower() in yt_lower:
             score += 0.2
         return min(score, 1.0)
 
-    def _is_official_channel(channel_name, artist_name):
-        if not channel_name:
-            return False
-        ch = channel_name.lower()
-        ar = artist_name.lower()
-        if ar in ch:
-            return True
-        for suffix in [" - topic", "vevo", " official"]:
-            if suffix in ch:
-                return True
-        return False
-
-    def _check_forbidden(yt_title_lower, track_title_lower, forbidden_list):
-        for word in forbidden_list:
+    def _is_forbidden(yt_title_lower, track_title_lower):
+        for word in forbidden_words:
             if " " in word:
                 if word in yt_title_lower and word not in track_title_lower:
                     return word
             else:
-                pattern = r'\b' + re.escape(word) + r'\b'
-                if re.search(pattern, yt_title_lower) and not re.search(pattern, track_title_lower):
+                pat = r'\b' + re.escape(word) + r'\b'
+                if re.search(pat, yt_title_lower) and not re.search(pat, track_title_lower):
                     return word
         return None
 
-    artist_part = query.split(" ")[0] if " " in query else query
-    search_queries = [query]
-    base_track = track_title_original
-    base_artist = query.replace(f" {track_title_original} official audio", "").replace(f" {track_title_original}", "").strip()
-    if not base_artist:
-        base_artist = artist_part
-
-    alt_q = f"{base_artist} {base_track}"
-    if alt_q != query and alt_q not in search_queries:
-        search_queries.append(alt_q)
-
-    alt_q2 = f"{base_track} {base_artist}"
-    if alt_q2 not in search_queries:
-        search_queries.append(alt_q2)
-
-    alt_q3 = f"{base_track} audio"
-    if alt_q3 not in search_queries:
-        search_queries.append(alt_q3)
-
-    def _entry_url(entry):
-        wp = entry.get("webpage_url", "")
-        if wp:
-            return wp
-        vid = entry.get("id", "")
-        if vid:
-            return f"https://www.youtube.com/watch?v={vid}"
-        return entry.get("url", "")
-
-    def _collect_candidates(entries):
-        found = []
-        for entry in entries:
-            title = entry.get("title", "").lower()
-            if not title:
-                continue
-            url = _entry_url(entry)
-            duration = entry.get("duration", 0) or 0
-            channel = entry.get("channel", "") or entry.get("uploader", "") or ""
-            view_count = entry.get("view_count", 0) or 0
-
-            blocked_word = _check_forbidden(title, track_title_original.lower(), forbidden_words)
-            if blocked_word:
-                logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - forbidden word '{blocked_word}'")
-                continue
-
-            if expected_duration_sec:
-                min_duration = max(15, expected_duration_sec - duration_tolerance)
-                max_duration = expected_duration_sec + duration_tolerance
-
-                if duration < min_duration or duration > max_duration:
-                    logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - duration {int(duration)}s outside [{int(min_duration)}s - {int(max_duration)}s]")
-                    continue
-
-                duration_diff = abs(duration - expected_duration_sec)
-                duration_score = max(0, 1.0 - (duration_diff / max(duration_tolerance, 1)))
-            else:
-                if duration < 15 or duration > 7200:
-                    continue
-                duration_score = 0.5
-
-            title_score = _title_similarity(entry.get("title", ""), track_title_original, base_artist)
-            official_bonus = 0.15 if _is_official_channel(channel, base_artist) else 0.0
-            view_score = 0.0
-            if view_count > 0:
-                view_score = min(0.1, math.log10(max(view_count, 1)) / 100)
-            total_score = (duration_score * 0.35) + (title_score * 0.40) + official_bonus + view_score
-
-            if url:
-                found.append({
-                    "url": url,
-                    "title": entry.get("title", ""),
-                    "duration": duration,
-                    "channel": channel,
-                    "score": total_score,
-                })
-                logger.debug(f"   ✓ Candidate '{entry.get('title', '')}' — score={total_score:.2f} (dur={duration_score:.2f} title={title_score:.2f} official={official_bonus:.2f} views={view_score:.3f})")
-        return found
+    ydl_opts_search = {**_build_opts(), "extract_flat": True, "noplaylist": True, "playlistend": 15}
+    candidates = []
 
     for qi, sq in enumerate(search_queries):
         if candidates:
@@ -613,22 +533,117 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
         if qi > 0:
             logger.info(f"   🔄 Fallback search ({qi+1}/{len(search_queries)}): \"{sq}\"")
         try:
+            search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(sq)}&sp=CAM%3D"
             with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
-                yt_results = ydl.extract_info(f"ytsearch15:{sq}", download=False)
-                candidates.extend(_collect_candidates((yt_results or {}).get("entries", [])))
+                results = ydl.extract_info(search_url, download=False)
+                for entry in (results or {}).get("entries", []):
+                    title = entry.get("title", "")
+                    if not title:
+                        continue
+                    vid = entry.get("id", "")
+                    if vid and (vid.startswith("RD") or vid.startswith("PL") or vid.startswith("UU") or len(vid) != 11):
+                        continue
+                    url = entry.get("webpage_url", "") or (f"https://www.youtube.com/watch?v={vid}" if vid else entry.get("url", ""))
+                    if not url:
+                        continue
+                    blocked = _is_forbidden(title.lower(), base_track.lower())
+                    if blocked:
+                        logger.debug(f"   ⊗ Rejected '{title}' — forbidden: '{blocked}'")
+                        continue
+                    duration = entry.get("duration", 0) or 0
+                    view_count = entry.get("view_count", 0) or 0
+                    channel = entry.get("channel", "") or entry.get("uploader", "") or ""
+
+                    if expected_duration_sec and duration:
+                        min_dur = max(15, expected_duration_sec - duration_tolerance)
+                        max_dur = expected_duration_sec + duration_tolerance
+                        if duration < min_dur or duration > max_dur:
+                            logger.debug(f"   ⊗ Rejected '{title}' — duration {int(duration)}s outside [{int(min_dur)}s-{int(max_dur)}s]")
+                            continue
+                        dur_diff = abs(duration - expected_duration_sec)
+                        duration_score = max(0, 1.0 - (dur_diff / max(duration_tolerance, 1)))
+                    elif duration:
+                        if duration < 15 or duration > 7200:
+                            continue
+                        duration_score = 0.5
+                    else:
+                        duration_score = 0.1
+
+                    title_score = _title_similarity(title, base_track, base_artist)
+                    if title_score < 0.3:
+                        logger.debug(f"   ⊗ Rejected '{title}' — title too different ({title_score:.2f})")
+                        continue
+
+                    view_score = min(0.25, math.log10(max(view_count, 1)) / 28) if view_count > 0 else 0.0
+                    total_score = (duration_score * 0.30) + (title_score * 0.30) + (view_score * 0.40)
+
+                    candidates.append({
+                        "url": url,
+                        "title": title,
+                        "duration": duration,
+                        "channel": channel,
+                        "view_count": view_count,
+                        "score": total_score,
+                    })
+                    logger.debug(f"   ✓ '{title}' — score={total_score:.2f} (dur={duration_score:.2f} title={title_score:.2f} views={view_score:.3f} count={view_count})")
         except Exception as e:
             logger.error(f"   ❌ Search failed for \"{sq}\": {str(e)}")
             if qi == len(search_queries) - 1 and not candidates:
                 return f"Search failed: {str(e)[:120]}"
 
     if not candidates:
-        logger.warning(f"   ⚠️  No suitable candidates found after all search attempts")
-        return "No suitable YouTube match found (filtered by duration/forbidden words)"
+        logger.info(f"   🔄 No results with view-sort, retrying with relevance...")
+        for sq in search_queries:
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
+                    results = ydl.extract_info(f"ytsearch15:{sq}", download=False)
+                    for entry in (results or {}).get("entries", []):
+                        title = entry.get("title", "")
+                        if not title:
+                            continue
+                        vid = entry.get("id", "")
+                        if vid and (vid.startswith("RD") or vid.startswith("PL") or vid.startswith("UU") or len(vid) != 11):
+                            continue
+                        url = entry.get("webpage_url", "") or (f"https://www.youtube.com/watch?v={vid}" if vid else entry.get("url", ""))
+                        if not url:
+                            continue
+                        blocked = _is_forbidden(title.lower(), base_track.lower())
+                        if blocked:
+                            continue
+                        duration = entry.get("duration", 0) or 0
+                        view_count = entry.get("view_count", 0) or 0
+                        channel = entry.get("channel", "") or entry.get("uploader", "") or ""
+                        if expected_duration_sec and duration:
+                            min_dur = max(15, expected_duration_sec - duration_tolerance)
+                            max_dur = expected_duration_sec + duration_tolerance
+                            if duration < min_dur or duration > max_dur:
+                                continue
+                            dur_diff = abs(duration - expected_duration_sec)
+                            duration_score = max(0, 1.0 - (dur_diff / max(duration_tolerance, 1)))
+                        elif duration:
+                            if duration < 15 or duration > 7200:
+                                continue
+                            duration_score = 0.5
+                        else:
+                            duration_score = 0.1
+                        title_score = _title_similarity(title, base_track, base_artist)
+                        if title_score < 0.3:
+                            continue
+                        view_score = min(0.25, math.log10(max(view_count, 1)) / 28) if view_count > 0 else 0.0
+                        total_score = (duration_score * 0.30) + (title_score * 0.30) + (view_score * 0.40)
+                        candidates.append({"url": url, "title": title, "duration": duration, "channel": channel, "view_count": view_count, "score": total_score})
+            except Exception:
+                pass
+            if candidates:
+                break
+
+    if not candidates:
+        logger.warning(f"   ⚠️ No candidates found after all search queries")
+        return "No suitable YouTube match found"
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
-
     best = candidates[0]
-    logger.info(f"   🎯 Best match: '{best['title']}' (score={best['score']:.2f}, duration={int(best['duration'])}s, channel='{best.get('channel', '')}')")
+    logger.info(f"   🎯 Best match: '{best['title']}' (score={best['score']:.2f}, duration={int(best['duration'])}s, views={best['view_count']}, channel='{best['channel']}')")
 
     for candidate in candidates:
         clients_to_try = []
@@ -642,39 +657,37 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
 
         last_err = None
         for pc in clients_to_try:
-            ydl_opts_download = {
-                **build_common_opts(player_client=pc),
+            ydl_opts_dl = {
+                **_build_opts(player_client=pc),
                 "format": "bestaudio/best",
-                "postprocessors": [
-                    {
-                        "key": "FFmpegExtractAudio",
-                        "preferredcodec": "mp3",
-                        "preferredquality": "320",
-                    }
-                ],
+                "noprogress": True,
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "320",
+                }],
                 "outtmpl": output_path,
                 "progress_hooks": [lambda d: update_progress(d)],
             }
             try:
-                with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
+                with yt_dlp.YoutubeDL(ydl_opts_dl) as ydl_dl:
                     ydl_dl.download([candidate["url"]])
                 return True
             except Exception as e:
                 last_err = e
                 msg = str(e)
+                if "Sign in to confirm your age" in msg or "age-restricted" in msg.lower():
+                    logger.warning(f"   ⚠️ Skipping '{candidate['title']}' — age-restricted (cookies required)")
+                    break
                 if "403" in msg:
-                    logger.debug(
-                        f"   ⊗ 403 with player_client={pc or 'default'}; ensure cookies are provided (YT_COOKIES_FILE) and try again"
-                    )
+                    logger.debug(f"   ⊗ 403 with player_client={pc or 'default'}")
                 else:
-                    logger.debug(
-                        f"   ⊗ Failed with player_client={pc or 'default'}; {msg[:180]}"
-                    )
+                    logger.debug(f"   ⊗ Download failed with player_client={pc or 'default'}: {msg[:180]}")
                 continue
-        if last_err:
-            logger.debug(
-                f"   ⚠️  Failed to download '{candidate['title']}' after trying multiple client profiles."
-            )
+        if last_err and ("Sign in to confirm your age" in str(last_err) or "age-restricted" in str(last_err).lower()):
+            last_err = None
+        elif last_err:
+            logger.debug(f"   ⚠️ Failed all clients for '{candidate['title']}'")
         continue
 
     last_error_msg = str(last_err)[:120] if last_err else "Unknown error"
@@ -1764,6 +1777,9 @@ def api_youtube_search():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             yt_results = ydl.extract_info(f"ytsearch10:{query}", download=False)
             for entry in (yt_results or {}).get("entries", []):
+                vid = entry.get("id", "")
+                if vid and (vid.startswith("RD") or vid.startswith("PL") or vid.startswith("UU") or len(vid) != 11):
+                    continue
                 url = _entry_watch_url(entry)
                 if url and url not in seen_urls:
                     seen_urls.add(url)
@@ -1914,7 +1930,6 @@ def api_download_manual():
     if not target_path:
         return jsonify({"success": False, "message": "No album path available"}), 400
 
-    # Path traversal protection: ensure target_path is within DOWNLOAD_DIR or lidarr_path
     config = load_config()
     lidarr_path = config.get("lidarr_path", "")
     allowed_bases = [os.path.realpath(DOWNLOAD_DIR)] if DOWNLOAD_DIR else []
