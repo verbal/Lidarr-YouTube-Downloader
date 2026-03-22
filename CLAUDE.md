@@ -77,12 +77,13 @@ docker run -p 5005:5000 \
 | `db.py` | SQLite connection, schema, migrations |
 | `models.py` | All SQL queries, CRUD, pagination |
 | `downloader.py` | YouTube search/scoring/download via yt-dlp |
-| `processing.py` | Album processing, queue processor, progress state |
+| `processing.py` | Album processing, queue processor, per-track state, skip handling |
 | `metadata.py` | ID3 tagging, XML sidecar, iTunes API |
 | `lidarr.py` | Lidarr API wrapper |
 | `notifications.py` | Telegram/Discord webhooks |
 | `config.py` | Config load/save, constants |
 | `scheduler.py` | Scheduled polling/auto-download |
+| `fingerprint.py` | AcoustID fingerprinting via fpcalc/chromaprint |
 | `utils.py` | Shared utilities |
 
 ### Key data flows
@@ -90,11 +91,17 @@ docker run -p 5005:5000 \
 1. Lidarr API (`/api/v1/wanted/missing`) → missing albums list shown in UI
 2. User triggers download → `download_track_youtube()` searches YouTube, scores candidates, downloads best match via `yt-dlp` + ffmpeg
 3. Post-download: metadata applied via `mutagen` (ID3 tags from MusicBrainz/iTunes APIs), optional XML sidecar written
-4. Lidarr import triggered via `/api/v1/command` (DownloadedAlbumsScan)
+4. Optional AcoustID fingerprinting via `fingerprint.py` (requires `fpcalc` binary and API key)
+5. Per-track download results recorded in `track_downloads` table via `models.add_track_download()`
+6. Lidarr import triggered via `/api/v1/command` (DownloadedAlbumsScan)
 
 ### Database
 
-State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_version`, `download_history`, `download_logs`, `failed_tracks`, `download_queue`.
+State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_version`, `track_downloads`, `download_logs`, `download_queue`.
+
+Current schema version: **3**. Migrations:
+- V1→V2: Replaced `download_history` + `failed_tracks` with `track_downloads` (per-track download records with YouTube URL, match score, duration, album/track metadata).
+- V2→V3: Added AcoustID fingerprint columns to `track_downloads` (`acoustid_fingerprint_id`, `acoustid_score`, `acoustid_recording_id`, `acoustid_recording_title`).
 
 Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
@@ -105,11 +112,11 @@ Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
 ### In-memory state
 
-- `download_process` — current active download state (transient, not persisted)
+- `download_process` — current active download state (transient, not persisted). Contains per-track state: `tracks` list (each with `status`, `title`, `track_number`, `error`, `youtube_url`, `progress`, `speed`), `current_track_index`, album metadata. `TrackSkippedException` enables skip-track support during search and download.
 
 ### Config
 
-Loaded from env vars + `/config/config.json`. File config overrides env vars. Saved via `save_config()`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API.
+Loaded from env vars + `/config/config.json`. File config overrides env vars. Saved via `save_config()`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`.
 
 ### Threading
 
@@ -138,6 +145,7 @@ Standalone scripts not part of the main app:
 - `list_missing.py` — CLI to list missing albums from Lidarr
 - `migrate_directories.py` — migrate album directory structure
 - `migrate_json_to_db.py` — migrate JSON state files to SQLite (one-time upgrade)
+- `verify_fingerprints.py` — AcoustID fingerprint verification tool
 
 ## Key Dependencies
 
@@ -146,10 +154,11 @@ Standalone scripts not part of the main app:
 - `Flask` + `gunicorn` — web server
 - `schedule` — optional cron-style scheduler
 - `ffmpeg` (system package, not pip) — audio conversion
+- `fpcalc`/chromaprint (optional system package) — AcoustID fingerprinting
 
 ## Version Updates
 
-The version string is defined in `app.py`: `VERSION = "1.5.2"`. The README badge also references it and must be updated manually.
+The version string is defined in `app.py`: `VERSION = "1.5.5"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 
@@ -163,4 +172,4 @@ Run tests with the venv:
 source .venv/bin/activate && python -m pytest tests/ -v
 ```
 
-Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_migrate_tool.py`.
+Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`.
