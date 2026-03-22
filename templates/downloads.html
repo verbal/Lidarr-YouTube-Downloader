@@ -616,7 +616,7 @@
         .track-detail-header,
         .track-detail-row {
             display: grid;
-            grid-template-columns: 40px 1fr 1fr 65px 65px 55px 130px;
+            grid-template-columns: 40px 1.5fr 2fr 60px 70px 55px 100px 40px;
             padding: 0.4rem 0.75rem;
             align-items: center;
             font-size: 0.8rem;
@@ -660,16 +660,18 @@
         @media (max-width: 768px) {
             .track-detail-header,
             .track-detail-row {
-                grid-template-columns: 30px 1fr 60px;
+                grid-template-columns: 30px 1fr 60px 40px;
             }
             .track-detail-header > :nth-child(3),
             .track-detail-header > :nth-child(4),
             .track-detail-header > :nth-child(5),
             .track-detail-header > :nth-child(7),
+            .track-detail-header > :nth-child(8),
             .track-detail-row > :nth-child(3),
             .track-detail-row > :nth-child(4),
             .track-detail-row > :nth-child(5),
-            .track-detail-row > :nth-child(7) {
+            .track-detail-row > :nth-child(7),
+            .track-detail-row > :nth-child(8) {
                 display: none;
             }
         }
@@ -695,6 +697,127 @@
 
         .btn-danger:active {
             transform: scale(0.96);
+        }
+
+        .track-detail-row.track-deleted {
+            background: rgba(239,68,68,0.06);
+        }
+        .track-detail-row.track-deleted .track-title-text {
+            text-decoration: line-through;
+            color: var(--text-dim);
+        }
+        .deleted-badge {
+            display: inline-block;
+            font-size: 0.65rem;
+            color: var(--danger);
+            background: rgba(239,68,68,0.15);
+            padding: 1px 6px;
+            border-radius: 4px;
+            margin-left: 6px;
+        }
+        .btn-delete-track {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            padding: 4px 6px;
+            border-radius: 6px;
+            transition: all 0.15s;
+            font-size: 0.8rem;
+        }
+        .btn-delete-track:hover {
+            color: var(--danger);
+            background: rgba(239,68,68,0.15);
+        }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .modal-overlay.hidden { display: none; }
+        .modal-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            max-width: 480px;
+            width: 90%;
+            box-shadow: var(--shadow);
+        }
+        .modal-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .modal-title i { color: var(--danger); }
+        .modal-subtitle {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            margin-bottom: 1rem;
+        }
+        .file-path-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            letter-spacing: 0.05em;
+            margin-bottom: 0.3rem;
+            font-weight: 600;
+        }
+        .file-path-box {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.6rem 0.75rem;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            word-break: break-all;
+            margin-bottom: 0.5rem;
+        }
+        .xml-note {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            font-style: italic;
+            margin-bottom: 1rem;
+        }
+        .ban-checkbox {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.6rem;
+            background: rgba(239,68,68,0.06);
+            border: 1px solid rgba(239,68,68,0.2);
+            border-radius: 8px;
+            padding: 0.75rem;
+            margin: 1rem 0;
+            cursor: pointer;
+        }
+        .ban-checkbox input[type="checkbox"] {
+            margin-top: 2px;
+            accent-color: var(--danger);
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+        }
+        .ban-checkbox-text { font-size: 0.8rem; }
+        .ban-checkbox-text strong { color: var(--danger); }
+        .ban-checkbox-text .ban-detail {
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            margin-top: 2px;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 1rem;
         }
 
         .pagination {
@@ -1548,7 +1671,7 @@
 
                 var header = document.createElement('div');
                 header.className = 'track-detail-header';
-                ['#', 'Track', 'YouTube Source', 'Score', 'AcoustID', 'Dur.', 'Downloaded'].forEach(function(text) {
+                ['#', 'Track', 'YouTube Source', 'Score', 'AcoustID', 'Dur.', 'Downloaded', ''].forEach(function(text) {
                     var cell = document.createElement('div');
                     cell.textContent = text;
                     header.appendChild(cell);
@@ -1568,14 +1691,26 @@
                     detailRow.appendChild(numCell);
 
                     var titleCell = document.createElement('div');
-                    titleCell.style.color = isFailed ? 'var(--danger)' : 'var(--text)';
-                    titleCell.textContent = t.track_title;
-                    if (attemptCount > 1) {
-                        var attemptBadge = document.createElement('span');
-                        attemptBadge.className = 'track-attempts';
-                        attemptBadge.title = attemptCount + ' download attempts';
-                        attemptBadge.textContent = '(' + attemptCount + ' attempts)';
-                        titleCell.appendChild(attemptBadge);
+                    if (t.deleted) {
+                        detailRow.classList.add('track-deleted');
+                        var titleSpan = document.createElement('span');
+                        titleSpan.className = 'track-title-text';
+                        titleSpan.textContent = t.track_title;
+                        titleCell.appendChild(titleSpan);
+                        var delBadge = document.createElement('span');
+                        delBadge.className = 'deleted-badge';
+                        delBadge.textContent = 'deleted';
+                        titleCell.appendChild(delBadge);
+                    } else {
+                        titleCell.style.color = isFailed ? 'var(--danger)' : 'var(--text)';
+                        titleCell.textContent = t.track_title;
+                        if (attemptCount > 1) {
+                            var attemptBadge = document.createElement('span');
+                            attemptBadge.className = 'track-attempts';
+                            attemptBadge.title = attemptCount + ' download attempts';
+                            attemptBadge.textContent = '(' + attemptCount + ' attempts)';
+                            titleCell.appendChild(attemptBadge);
+                        }
                     }
                     detailRow.appendChild(titleCell);
 
@@ -1592,6 +1727,9 @@
                             link.rel = 'noopener';
                             link.title = t.youtube_title || t.youtube_url;
                             link.textContent = t.youtube_title || t.youtube_url;
+                            if (t.deleted) {
+                                link.style.opacity = '0.5';
+                            }
                             ytCell.appendChild(link);
                         } else {
                             ytCell.style.color = 'var(--text-dim)';
@@ -1639,6 +1777,33 @@
                     timeCell.style.cssText = 'color:var(--text-dim);font-size:0.75rem;';
                     timeCell.textContent = new Date(t.timestamp * 1000).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
                     detailRow.appendChild(timeCell);
+
+                    var actionsCell = document.createElement('div');
+                    if (t.success && !t.deleted) {
+                        var delBtn = document.createElement('button');
+                        delBtn.className = 'btn-delete-track';
+                        delBtn.title = 'Delete track file';
+                        var delIcon = document.createElement('i');
+                        delIcon.className = 'fas fa-trash';
+                        delBtn.appendChild(delIcon);
+                        delBtn.onclick = (function(trackData) {
+                            return function(e) {
+                                e.stopPropagation();
+                                openDeleteModal({
+                                    id: trackData.id,
+                                    trackTitle: trackData.track_title,
+                                    trackNumber: trackData.track_number,
+                                    albumPath: trackData.album_path,
+                                    youtubeUrl: trackData.youtube_url,
+                                    youtubeTitle: trackData.youtube_title,
+                                    artistName: trackData.artist_name,
+                                    albumId: albumId,
+                                });
+                            };
+                        })(t);
+                        actionsCell.appendChild(delBtn);
+                    }
+                    detailRow.appendChild(actionsCell);
 
                     fragment.appendChild(detailRow);
                 });
@@ -1861,9 +2026,75 @@
             }).catch(function() {});
         }
 
+        var _deleteModalData = null;
+
+        function openDeleteModal(data) {
+            _deleteModalData = data;
+            var num = String(data.trackNumber).padStart(2, '0');
+            var filename = num + ' - ' + data.trackTitle + '.mp3';
+            var path = data.albumPath ? data.albumPath + '/' + filename : filename;
+            document.getElementById('deleteModalPath').textContent = path;
+            var urlText = data.youtubeUrl || 'unknown';
+            document.getElementById('banUrlDetail').textContent =
+                'The URL ' + urlText + ' will be skipped when searching for "' +
+                data.trackTitle + '" in future downloads.';
+            document.getElementById('banUrlCheckbox').checked = true;
+            document.getElementById('deleteTrackModal').classList.remove('hidden');
+            document.getElementById('confirmDeleteBtn').onclick = confirmDeleteTrack;
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteTrackModal').classList.add('hidden');
+            _deleteModalData = null;
+        }
+
+        async function confirmDeleteTrack() {
+            if (!_deleteModalData) return;
+            var data = _deleteModalData;
+            var banUrl = document.getElementById('banUrlCheckbox').checked;
+            closeDeleteModal();
+            try {
+                var resp = await fetch('/api/download/track/' + data.id, {
+                    method: 'DELETE',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ban_url: banUrl}),
+                });
+                if (resp.ok) {
+                    var grid = document.getElementById('tracks-' + data.albumId);
+                    if (grid) await renderTrackGrid(grid, data.albumId);
+                } else {
+                    alert('Failed to delete track');
+                }
+            } catch (e) {
+                console.error('Delete track error:', e);
+                alert('Failed to delete track');
+            }
+        }
+
         setInterval(updateHistory, 10000);
 
     </script>
+
+<div class="modal-overlay hidden" id="deleteTrackModal" onclick="if(event.target===this)closeDeleteModal()">
+    <div class="modal-box">
+        <div class="modal-title"><i class="fas fa-trash-alt"></i> Delete Track</div>
+        <div class="modal-subtitle">This will permanently remove the downloaded file from disk.</div>
+        <div class="file-path-label">File location</div>
+        <div class="file-path-box" id="deleteModalPath"></div>
+        <div class="xml-note">The XML sidecar file will also be removed if present.</div>
+        <label class="ban-checkbox">
+            <input type="checkbox" id="banUrlCheckbox" checked>
+            <div class="ban-checkbox-text">
+                <strong>Ban this URL from future downloads</strong>
+                <div class="ban-detail" id="banUrlDetail"></div>
+            </div>
+        </label>
+        <div class="modal-actions">
+            <button class="btn btn-outline" onclick="closeDeleteModal()">Cancel</button>
+            <button class="btn btn-danger" id="confirmDeleteBtn"><i class="fas fa-trash"></i> Delete Track</button>
+        </div>
+    </div>
+</div>
 </body>
 
 </html>
