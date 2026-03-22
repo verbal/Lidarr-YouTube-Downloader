@@ -506,6 +506,67 @@ def api_album_tracks(album_id):
     return jsonify(models.get_track_downloads_for_album(album_id))
 
 
+@app.route("/api/download/track/<int:track_id>", methods=["DELETE"])
+def api_delete_track(track_id):
+    track_data = models.mark_track_deleted(track_id)
+    if track_data is None:
+        return jsonify({"success": False, "error": "Track not found"}), 404
+
+    file_deleted = False
+    sanitized_track = sanitize_filename(track_data["track_title"])
+    track_num = track_data["track_number"]
+    album_path = track_data["album_path"]
+    mp3_name = f"{track_num:02d} - {sanitized_track}.mp3"
+    xml_name = f"{track_num:02d} - {sanitized_track}.xml"
+    mp3_path = os.path.join(album_path, mp3_name)
+    xml_path = os.path.join(album_path, xml_name)
+
+    try:
+        os.remove(mp3_path)
+        file_deleted = True
+    except FileNotFoundError:
+        logger.warning("Track file not found for deletion: %s", mp3_path)
+    try:
+        os.remove(xml_path)
+    except FileNotFoundError:
+        pass
+
+    url_banned = False
+    body = request.get_json(silent=True) or {}
+    if body.get("ban_url") and track_data.get("youtube_url"):
+        models.add_banned_url(
+            youtube_url=track_data["youtube_url"],
+            youtube_title=track_data.get("youtube_title", ""),
+            album_id=track_data["album_id"],
+            album_title=track_data.get("album_title", ""),
+            artist_name=track_data.get("artist_name", ""),
+            track_title=track_data["track_title"],
+            track_number=track_num,
+        )
+        url_banned = True
+
+    return jsonify({
+        "success": True,
+        "file_deleted": file_deleted,
+        "url_banned": url_banned,
+    })
+
+
+@app.route("/api/banned-urls")
+def api_get_banned_urls():
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 50, type=int)
+    return jsonify(models.get_banned_urls(page, per_page))
+
+
+@app.route("/api/banned-urls/<int:ban_id>", methods=["DELETE"])
+def api_remove_banned_url(ban_id):
+    deleted = models.remove_banned_url(ban_id)
+    if deleted:
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Ban not found"}), 404
+
+
 # --- Stats ---
 
 

@@ -623,3 +623,136 @@ class TestMiscRoutes:
         with patch("app.get_ytdlp_version", return_value="2024.01.01"):
             resp = client.get("/api/ytdlp/version")
             assert resp.get_json()["version"] == "2024.01.01"
+
+
+class TestDeleteTrackRoute:
+    def test_delete_track_marks_deleted(self, client, tmp_path):
+        import models
+        _add_track(
+            models, album_id=1, album_title="Album",
+            artist_name="Artist", track_title="Song",
+            track_number=1, youtube_url="https://yt/abc",
+            youtube_title="vid", album_path=str(tmp_path),
+        )
+        # Create the MP3 file so deletion works
+        mp3_path = tmp_path / "01 - Song.mp3"
+        mp3_path.write_text("fake mp3")
+        tracks = models.get_track_downloads_for_album(1)
+        track_id = tracks[0]["id"]
+        resp = client.delete(
+            f"/api/download/track/{track_id}",
+            json={"ban_url": False},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert data["file_deleted"] is True
+        assert data["url_banned"] is False
+        assert not mp3_path.exists()
+        # DB marked as deleted
+        tracks = models.get_track_downloads_for_album(1)
+        assert tracks[0]["deleted"] == 1
+
+    def test_delete_track_with_ban(self, client, tmp_path):
+        import models
+        _add_track(
+            models, album_id=1, album_title="Album",
+            artist_name="Artist", track_title="Song",
+            track_number=1, youtube_url="https://yt/abc",
+            youtube_title="vid", album_path=str(tmp_path),
+        )
+        mp3_path = tmp_path / "01 - Song.mp3"
+        mp3_path.write_text("fake mp3")
+        tracks = models.get_track_downloads_for_album(1)
+        track_id = tracks[0]["id"]
+        resp = client.delete(
+            f"/api/download/track/{track_id}",
+            json={"ban_url": True},
+        )
+        data = resp.get_json()
+        assert data["url_banned"] is True
+        banned = models.get_banned_urls_for_track(1, "Song")
+        assert "https://yt/abc" in banned
+
+    def test_delete_track_removes_xml_sidecar(self, client, tmp_path):
+        import models
+        _add_track(
+            models, album_id=1, track_title="Song",
+            track_number=1, album_path=str(tmp_path),
+        )
+        mp3_path = tmp_path / "01 - Song.mp3"
+        xml_path = tmp_path / "01 - Song.xml"
+        mp3_path.write_text("fake mp3")
+        xml_path.write_text("<xml/>")
+        tracks = models.get_track_downloads_for_album(1)
+        resp = client.delete(
+            f"/api/download/track/{tracks[0]['id']}",
+            json={"ban_url": False},
+        )
+        assert resp.status_code == 200
+        assert not mp3_path.exists()
+        assert not xml_path.exists()
+
+    def test_delete_track_file_missing(self, client):
+        import models
+        _add_track(
+            models, album_id=1, track_title="Song",
+            track_number=1, album_path="/nonexistent/path",
+        )
+        tracks = models.get_track_downloads_for_album(1)
+        resp = client.delete(
+            f"/api/download/track/{tracks[0]['id']}",
+            json={"ban_url": False},
+        )
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data["file_deleted"] is False
+        # Still marked deleted in DB
+        tracks = models.get_track_downloads_for_album(1)
+        assert tracks[0]["deleted"] == 1
+
+    def test_delete_track_not_found(self, client):
+        resp = client.delete(
+            "/api/download/track/9999",
+            json={"ban_url": False},
+        )
+        assert resp.status_code == 404
+
+
+class TestBannedUrlsRoutes:
+    def test_get_banned_urls_empty(self, client):
+        resp = client.get("/api/banned-urls")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["items"] == []
+        assert data["total"] == 0
+
+    def test_get_banned_urls_with_data(self, client):
+        import models
+        models.add_banned_url(
+            youtube_url="https://yt/abc", youtube_title="vid",
+            album_id=1, album_title="A", artist_name="A",
+            track_title="T1", track_number=1,
+        )
+        resp = client.get("/api/banned-urls")
+        data = resp.get_json()
+        assert data["total"] == 1
+        assert data["items"][0]["youtube_url"] == "https://yt/abc"
+
+    def test_remove_banned_url(self, client):
+        import models
+        models.add_banned_url(
+            youtube_url="https://yt/abc", youtube_title="vid",
+            album_id=1, album_title="A", artist_name="A",
+            track_title="T1", track_number=1,
+        )
+        bans = models.get_banned_urls(page=1, per_page=50)
+        ban_id = bans["items"][0]["id"]
+        resp = client.delete(f"/api/banned-urls/{ban_id}")
+        assert resp.status_code == 200
+        assert resp.get_json()["success"] is True
+        assert models.get_banned_urls(page=1, per_page=50)["total"] == 0
+
+    def test_remove_banned_url_not_found(self, client):
+        resp = client.delete("/api/banned-urls/9999")
+        assert resp.status_code == 404
