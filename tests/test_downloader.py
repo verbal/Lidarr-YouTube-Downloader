@@ -5,6 +5,8 @@ from downloader import (
     _is_official_channel,
     _title_similarity,
     download_track_youtube,
+    download_youtube_candidate,
+    search_youtube_candidates,
 )
 
 
@@ -323,3 +325,174 @@ class TestSkipCheck:
         )
         assert result.get("skipped") is not True
         assert result.get("success") is False
+
+
+class TestSearchYoutubeCandidates:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_returns_ranked_candidates(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Artist - Track B",
+                    "url": "url_b",
+                    "duration": 200,
+                    "channel": "Other",
+                    "view_count": 100,
+                },
+                {
+                    "title": "Artist - Track A (Official Audio)",
+                    "url": "url_a",
+                    "duration": 200,
+                    "channel": "ArtistVEVO",
+                    "view_count": 1000000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Artist Track official audio", "Track", expected_duration_ms=200000
+        )
+        assert len(candidates) == 2
+        assert candidates[0]["score"] >= candidates[1]["score"]
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_respects_banned_urls(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Artist - Track",
+                    "url": "banned_url",
+                    "duration": 200,
+                    "channel": "Artist",
+                    "view_count": 1000,
+                },
+                {
+                    "title": "Artist - Track Alt",
+                    "url": "good_url",
+                    "duration": 200,
+                    "channel": "Artist",
+                    "view_count": 1000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Artist Track", "Track", expected_duration_ms=200000,
+            banned_urls={"banned_url"},
+        )
+        urls = [c["url"] for c in candidates]
+        assert "banned_url" not in urls
+        assert "good_url" in urls
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_caps_at_10_candidates(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": f"Track {i}",
+                    "url": f"url_{i}",
+                    "duration": 200,
+                    "channel": "Ch",
+                    "view_count": 1000,
+                }
+                for i in range(15)
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Artist Track", "Track", expected_duration_ms=200000
+        )
+        assert len(candidates) <= 10
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_skip_check_returns_empty(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        candidates = search_youtube_candidates(
+            "Artist Track", "Track", skip_check=lambda: True
+        )
+        assert candidates == []
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_no_candidates_returns_empty(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {"entries": []}
+        candidates = search_youtube_candidates("Artist Track", "Track")
+        assert candidates == []
+
+
+class TestDownloadYoutubeCandidate:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_success_returns_result(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.return_value = 0
+        candidate = {
+            "url": "test_url",
+            "title": "Test Title",
+            "duration": 200,
+            "score": 0.9,
+        }
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is True
+        assert result["youtube_url"] == "test_url"
+        assert result["youtube_title"] == "Test Title"
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_download_failure_returns_error(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("Network error")
+        candidate = {
+            "url": "test_url",
+            "title": "Test Title",
+            "duration": 200,
+            "score": 0.9,
+        }
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is False
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_skip_check_returns_skipped(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        candidate = {
+            "url": "test_url",
+            "title": "Test",
+            "duration": 200,
+            "score": 0.9,
+        }
+        result = download_youtube_candidate(
+            candidate, "/tmp/output", skip_check=lambda: True
+        )
+        assert result.get("skipped") is True

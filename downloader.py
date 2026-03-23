@@ -3,6 +3,11 @@
 Provides download_track_youtube() which searches YouTube for a track,
 scores candidates by title similarity, duration, channel, and view count,
 then downloads the best match as MP3.
+
+Public API:
+    search_youtube_candidates() -- search and score; returns ranked list
+    download_youtube_candidate() -- download a single candidate dict
+    download_track_youtube()    -- thin wrapper combining both
 """
 
 import logging
@@ -129,28 +134,30 @@ def _build_common_opts(player_client=None):
     return opts
 
 
-def download_track_youtube(
-    query, output_path, track_title_original,
-    expected_duration_ms=None, progress_hook=None, skip_check=None,
-    banned_urls=None,
+MAX_CANDIDATES = 10
+
+
+def search_youtube_candidates(
+    query, track_title_original,
+    expected_duration_ms=None, skip_check=None, banned_urls=None,
 ):
-    """Search YouTube and download the best matching track as MP3.
+    """Search YouTube and return scored, ranked candidates (up to MAX_CANDIDATES).
 
     Args:
         query: Search query string (typically "Artist Track official audio").
-        output_path: Output file path template (without .mp3 extension).
-        track_title_original: Original track title for scoring.
+        track_title_original: Original track title for scoring and filtering.
         expected_duration_ms: Expected duration in milliseconds, or None.
-        progress_hook: Optional callback for yt-dlp progress events.
-        skip_check: Optional callable; if it returns True, abort and return
-            {"skipped": True}.
-        banned_urls: Optional set of YouTube URLs to exclude from candidates.
+        skip_check: Optional callable; if it returns True, abort early and
+            return an empty list.
+        banned_urls: Optional set of YouTube URLs to exclude.
 
     Returns:
-        Dict with result info on success/failure, or {"skipped": True}.
+        List of candidate dicts sorted by score descending, each with keys:
+        url, title, duration, channel, score. Empty list on no match or skip.
     """
     if skip_check and skip_check():
-        return {"skipped": True}
+        return []
+
     config = load_config()
     first_client = config.get("yt_player_client", "android") or None
     ydl_opts_search = {
@@ -159,7 +166,6 @@ def download_track_youtube(
         "extract_flat": True,
     }
 
-    candidates = []
     forbidden_words = config.get("forbidden_words", [
         "remix", "cover", "mashup", "bootleg", "live", "dj mix",
         "karaoke", "slowed", "reverb", "nightcore", "sped up",
@@ -178,7 +184,6 @@ def download_track_youtube(
         )
 
     artist_part = query.split(" ")[0] if " " in query else query
-    search_queries = [query]
     base_track = track_title_original
     base_artist = query.replace(
         f" {track_title_original} official audio", ""
@@ -186,21 +191,21 @@ def download_track_youtube(
     if not base_artist:
         base_artist = artist_part
 
+    search_queries = [query]
     alt_q = f"{base_artist} {base_track}"
     if alt_q != query and alt_q not in search_queries:
         search_queries.append(alt_q)
-
     alt_q2 = f"{base_track} {base_artist}"
     if alt_q2 not in search_queries:
         search_queries.append(alt_q2)
-
     alt_q3 = f"{base_track} audio"
     if alt_q3 not in search_queries:
         search_queries.append(alt_q3)
 
+    candidates = []
     for qi, sq in enumerate(search_queries):
         if skip_check and skip_check():
-            return {"skipped": True}
+            return []
         if candidates:
             break
         if qi > 0:
@@ -225,8 +230,7 @@ def download_track_youtube(
                     view_count = entry.get("view_count", 0) or 0
 
                     blocked = _check_forbidden(
-                        title, track_title_original.lower(),
-                        forbidden_words,
+                        title, track_title_original.lower(), forbidden_words,
                     )
                     if blocked:
                         logger.debug(
@@ -258,8 +262,7 @@ def download_track_youtube(
 
                     if banned_urls and url in banned_urls:
                         logger.debug(
-                            "   Rejected '%s'"
-                            " - URL banned by user",
+                            "   Rejected '%s' - URL banned by user",
                             entry.get("title", ""),
                         )
                         continue
@@ -302,94 +305,87 @@ def download_track_youtube(
                         )
         except Exception as e:
             logger.error(f'   Search failed for "{sq}": {e}')
-            if qi == len(search_queries) - 1 and not candidates:
-                return {
-                    "success": False,
-                    "error_message": f"Search failed: {str(e)[:120]}",
-                }
-
-    if not candidates:
-        logger.warning(
-            "   No suitable candidates found after all search attempts"
-        )
-        return {
-            "success": False,
-            "error_message": (
-                "No suitable YouTube match found"
-                " (filtered by duration/forbidden words)"
-            ),
-        }
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
+    return candidates[:MAX_CANDIDATES]
+
+
+def download_youtube_candidate(
+    candidate, output_path, progress_hook=None, skip_check=None,
+):
+    """Download a single YouTube candidate as MP3, trying multiple player clients.
+
+    Args:
+        candidate: Dict with keys url, title, duration, score.
+        output_path: Output file path template (without .mp3 extension).
+        progress_hook: Optional callback for yt-dlp progress events.
+        skip_check: Optional callable; if it returns True, abort and return
+            {"skipped": True}.
+
+    Returns:
+        Dict with result info on success/failure, or {"skipped": True}.
+    """
     if skip_check and skip_check():
         return {"skipped": True}
-    best = candidates[0]
-    logger.info(
-        f"   Best match: '{best['title']}'"
-        f" (score={best['score']:.2f},"
-        f" duration={int(best['duration'])}s,"
-        f" channel='{best.get('channel', '')}')"
-    )
+
+    config = load_config()
+    first_client = config.get("yt_player_client", "android")
+    clients_to_try = []
+    if first_client:
+        clients_to_try.append(first_client)
+    for alt in ["web", "ios"]:
+        if alt != first_client:
+            clients_to_try.append(alt)
+    clients_to_try.append(None)
 
     last_err = None
-    for candidate in candidates:
-        clients_to_try = []
-        first_client = config.get("yt_player_client", "android")
-        if first_client:
-            clients_to_try.append(first_client)
-        for alt in ["web", "ios"]:
-            if alt != first_client:
-                clients_to_try.append(alt)
-        clients_to_try.append(None)
-
-        last_err = None
-        for pc in clients_to_try:
-            ydl_opts_download = {
-                **_build_common_opts(player_client=pc),
-                "format": "bestaudio/best",
-                "postprocessors": [
-                    {
-                        "key": "FFmpegExtractAudio",
-                        "preferredcodec": "mp3",
-                        "preferredquality": "320",
-                    }
-                ],
-                "outtmpl": output_path,
-            }
-            if progress_hook:
-                ydl_opts_download["progress_hooks"] = [progress_hook]
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
-                    ydl_dl.download([candidate["url"]])
-                return {
-                    "success": True,
-                    "youtube_url": candidate["url"],
-                    "youtube_title": candidate["title"],
-                    "match_score": round(candidate["score"], 4),
-                    "duration_seconds": int(candidate["duration"]),
+    for pc in clients_to_try:
+        if skip_check and skip_check():
+            return {"skipped": True}
+        ydl_opts_download = {
+            **_build_common_opts(player_client=pc),
+            "format": "bestaudio/best",
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "320",
                 }
-            except Exception as e:
-                last_err = e
-                msg = str(e)
-                if "403" in msg:
-                    logger.debug(
-                        f"   403 with player_client={pc or 'default'};"
-                        " ensure cookies are provided"
-                        " (YT_COOKIES_FILE) and try again"
-                    )
-                else:
-                    logger.debug(
-                        f"   Failed with"
-                        f" player_client={pc or 'default'};"
-                        f" {msg[:180]}"
-                    )
-                continue
-        if last_err:
-            logger.debug(
-                f"   Failed to download '{candidate['title']}'"
-                " after trying multiple client profiles."
-            )
-        continue
+            ],
+            "outtmpl": output_path,
+        }
+        if progress_hook:
+            ydl_opts_download["progress_hooks"] = [progress_hook]
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
+                ydl_dl.download([candidate["url"]])
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": round(candidate["score"], 4),
+                "duration_seconds": int(candidate["duration"]),
+            }
+        except Exception as e:
+            last_err = e
+            msg = str(e)
+            if "403" in msg:
+                logger.debug(
+                    f"   403 with player_client={pc or 'default'};"
+                    " ensure cookies are provided"
+                    " (YT_COOKIES_FILE) and try again"
+                )
+            else:
+                logger.debug(
+                    f"   Failed with player_client={pc or 'default'};"
+                    f" {msg[:180]}"
+                )
+
+    if last_err:
+        logger.debug(
+            f"   Failed to download '{candidate['title']}'"
+            " after trying multiple client profiles."
+        )
 
     last_error_msg = str(last_err)[:120] if last_err else "Unknown error"
     if last_err and "403" in str(last_err):
@@ -402,7 +398,67 @@ def download_track_youtube(
         }
     return {
         "success": False,
-        "error_message": (
-            f"Download failed after all attempts: {last_error_msg}"
-        ),
+        "error_message": f"Download failed after all attempts: {last_error_msg}",
     }
+
+
+def download_track_youtube(
+    query, output_path, track_title_original,
+    expected_duration_ms=None, progress_hook=None, skip_check=None,
+    banned_urls=None,
+):
+    """Search YouTube and download the best matching track as MP3.
+
+    Args:
+        query: Search query string (typically "Artist Track official audio").
+        output_path: Output file path template (without .mp3 extension).
+        track_title_original: Original track title for scoring.
+        expected_duration_ms: Expected duration in milliseconds, or None.
+        progress_hook: Optional callback for yt-dlp progress events.
+        skip_check: Optional callable; if it returns True, abort and return
+            {"skipped": True}.
+        banned_urls: Optional set of YouTube URLs to exclude from candidates.
+
+    Returns:
+        Dict with result info on success/failure, or {"skipped": True}.
+    """
+    candidates = search_youtube_candidates(
+        query, track_title_original, expected_duration_ms, skip_check,
+        banned_urls,
+    )
+    if not candidates:
+        if skip_check and skip_check():
+            return {"skipped": True}
+        return {
+            "success": False,
+            "error_message": (
+                "No suitable YouTube match found"
+                " (filtered by duration/forbidden words)"
+            ),
+        }
+
+    if skip_check and skip_check():
+        return {"skipped": True}
+    best = candidates[0]
+    logger.info(
+        f"   Best match: '{best['title']}'"
+        f" (score={best['score']:.2f},"
+        f" duration={int(best['duration'])}s,"
+        f" channel='{best.get('channel', '')}')"
+    )
+
+    last_error = "Download failed after all candidates"
+    for candidate in candidates:
+        result = download_youtube_candidate(
+            candidate, output_path, progress_hook, skip_check,
+        )
+        if result.get("skipped"):
+            return result
+        if result.get("success"):
+            return result
+        last_error = result.get("error_message", "unknown")
+        logger.debug(
+            "   Failed to download '%s': %s", candidate["title"], last_error
+        )
+
+    return {"success": False, "error_message": last_error}
