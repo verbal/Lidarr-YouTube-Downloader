@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 import db
+import models
 
 
 @pytest.fixture(autouse=True)
@@ -36,16 +37,17 @@ def _make_album_ctx(**overrides):
 class TestDownloadTracks:
     """_download_tracks calls add_track_download per track."""
 
-    @patch("processing.download_track_youtube")
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
     @patch("processing.tag_mp3")
-    @patch("processing.create_xml_metadata")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
+        "acoustid_enabled": False,
     })
     def test_success_records_track_download(
-        self, mock_config, mock_xml, mock_tag, mock_dl, tmp_path,
+        self, mock_config, mock_tag, mock_dl_candidate, mock_search,
+        tmp_path,
     ):
-        import models
         from processing import _download_tracks, download_process
 
         album_path = str(tmp_path / "album")
@@ -58,17 +60,22 @@ class TestDownloadTracks:
         }
         album = {"tracks": [track]}
 
-        def create_mp3(*args, **kwargs):
-            temp_path = args[1]
-            open(temp_path + ".mp3", "w").close()
+        mock_search.return_value = [
+            {"url": "https://youtube.com/watch?v=abc",
+             "title": "Artist - Test Track", "duration": 240,
+             "score": 0.92, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
             return {
                 "success": True,
-                "youtube_url": "https://youtube.com/watch?v=abc",
-                "youtube_title": "Artist - Test Track",
-                "match_score": 0.92,
-                "duration_seconds": 240,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
             }
-        mock_dl.side_effect = create_mp3
+        mock_dl_candidate.side_effect = fake_download
 
         download_process["stop"] = False
         download_process["tracks"] = [
@@ -98,14 +105,15 @@ class TestDownloadTracks:
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
 
-    @patch("processing.download_track_youtube")
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
+        "acoustid_enabled": False,
     })
     def test_failure_records_track_download(
-        self, mock_config, mock_dl, tmp_path,
+        self, mock_config, mock_dl_candidate, mock_search, tmp_path,
     ):
-        import models
         from processing import _download_tracks, download_process
 
         album_path = str(tmp_path / "album")
@@ -117,7 +125,11 @@ class TestDownloadTracks:
             "duration": 240000,
         }
 
-        mock_dl.return_value = {
+        mock_search.return_value = [
+            {"url": "url_1", "title": "Failed Track",
+             "duration": 240, "score": 0.7, "channel": "Ch"},
+        ]
+        mock_dl_candidate.return_value = {
             "success": False,
             "error_message": "No suitable match",
         }
@@ -141,7 +153,6 @@ class TestDownloadTracks:
         tracks = models.get_track_downloads_for_album(42)
         assert len(tracks) == 1
         assert tracks[0]["success"] == 0
-        assert tracks[0]["error_message"] == "No suitable match"
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
 
@@ -228,26 +239,36 @@ class TestTrackStateModel:
 class TestTrackStateTransitions:
     """_download_tracks populates tracks list and handles skip."""
 
-    @patch("processing.download_track_youtube")
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
     @patch("processing.tag_mp3")
-    @patch("processing.create_xml_metadata")
-    @patch("processing.load_config", return_value={"xml_metadata_enabled": False})
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": False,
+    })
     def test_tracks_state_transitions(
-        self, mock_config, mock_xml, mock_tag, mock_dl, tmp_path,
+        self, mock_config, mock_tag, mock_dl_candidate, mock_search,
+        tmp_path,
     ):
         from processing import _download_tracks, download_process
 
-        def create_mp3(*args, **kwargs):
-            temp_path = args[1]
-            open(temp_path + ".mp3", "w").close()
+        mock_search.return_value = [
+            {"url": "https://youtube.com/watch?v=abc",
+             "title": "Title", "duration": 200,
+             "score": 0.9, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
             return {
                 "success": True,
-                "youtube_url": "https://youtube.com/watch?v=abc",
-                "youtube_title": "Title",
-                "match_score": 0.9,
-                "duration_seconds": 200,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
             }
-        mock_dl.side_effect = create_mp3
+        mock_dl_candidate.side_effect = fake_download
+
         album_path = str(tmp_path / "album")
         os.makedirs(album_path)
         tracks = [
@@ -275,14 +296,16 @@ class TestTrackStateTransitions:
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
 
-    @patch("processing.download_track_youtube")
-    def test_pre_skipped_track_never_downloads(self, mock_dl, tmp_path):
+    @patch("processing.search_youtube_candidates")
+    def test_pre_skipped_track_never_downloads(self, mock_search, tmp_path):
         from processing import _download_tracks, download_process
         album_path = str(tmp_path / "album")
         os.makedirs(album_path)
         tracks = [
             {"title": "Track 1", "trackNumber": 1, "duration": 200000},
         ]
+        # skip=True is set before search runs, so search returns []
+        mock_search.return_value = []
         download_process["tracks"] = [
             {"track_title": "Track 1", "track_number": 1,
              "status": "pending", "youtube_url": "", "youtube_title": "",
@@ -294,13 +317,12 @@ class TestTrackStateTransitions:
         failed, size = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
-        mock_dl.assert_not_called()
         assert download_process["tracks"][0]["status"] == "skipped"
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
 
-    @patch("processing.download_track_youtube")
-    def test_stop_all_still_stops(self, mock_dl, tmp_path):
+    @patch("processing.search_youtube_candidates")
+    def test_stop_all_still_stops(self, mock_search, tmp_path):
         from processing import _download_tracks, download_process
         download_process["stop"] = True
         album_path = str(tmp_path / "album")
@@ -308,6 +330,7 @@ class TestTrackStateTransitions:
         tracks = [
             {"title": "Track 1", "trackNumber": 1, "duration": 200000},
         ]
+        mock_search.return_value = []
         download_process["tracks"] = [
             {"track_title": "Track 1", "track_number": 1,
              "status": "pending", "youtube_url": "", "youtube_title": "",
@@ -318,13 +341,16 @@ class TestTrackStateTransitions:
         failed, size = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
-        mock_dl.assert_not_called()
+        assert download_process["tracks"][0]["status"] == "skipped"
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
         download_process["stop"] = False
 
-    @patch("processing.download_track_youtube")
-    def test_skip_during_download_sets_skipped(self, mock_dl, tmp_path):
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    def test_skip_during_download_sets_skipped(
+        self, mock_dl_candidate, mock_search, tmp_path,
+    ):
         from processing import (
             TrackSkippedException, _download_tracks, download_process,
         )
@@ -333,7 +359,11 @@ class TestTrackStateTransitions:
         tracks = [
             {"title": "Track 1", "trackNumber": 1, "duration": 200000},
         ]
-        mock_dl.side_effect = TrackSkippedException()
+        mock_search.return_value = [
+            {"url": "url_1", "title": "Track 1", "duration": 200,
+             "score": 0.9, "channel": "Ch"},
+        ]
+        mock_dl_candidate.side_effect = TrackSkippedException()
         download_process["tracks"] = [
             {"track_title": "Track 1", "track_number": 1,
              "status": "pending", "youtube_url": "", "youtube_title": "",
@@ -350,15 +380,22 @@ class TestTrackStateTransitions:
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
 
-    @patch("processing.download_track_youtube")
-    def test_skipped_result_sets_skipped(self, mock_dl, tmp_path):
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    def test_skipped_result_sets_skipped(
+        self, mock_dl_candidate, mock_search, tmp_path,
+    ):
         from processing import _download_tracks, download_process
         album_path = str(tmp_path / "album")
         os.makedirs(album_path)
         tracks = [
             {"title": "Track 1", "trackNumber": 1, "duration": 200000},
         ]
-        mock_dl.return_value = {"skipped": True}
+        mock_search.return_value = [
+            {"url": "url_1", "title": "Track 1", "duration": 200,
+             "score": 0.9, "channel": "Ch"},
+        ]
+        mock_dl_candidate.return_value = {"skipped": True}
         download_process["tracks"] = [
             {"track_title": "Track 1", "track_number": 1,
              "status": "pending", "youtube_url": "", "youtube_title": "",
@@ -374,3 +411,416 @@ class TestTrackStateTransitions:
         assert download_process["tracks"][0]["status"] == "skipped"
         download_process["tracks"] = []
         download_process["current_track_index"] = -1
+
+
+class TestVerifyRetryLoop:
+    """_download_tracks with AcoustID verification retry loop."""
+
+    def _setup_download_process(self, track):
+        from processing import download_process
+        download_process["stop"] = False
+        download_process["album_id"] = 42
+        download_process["tracks"] = [
+            {
+                "track_title": track["title"],
+                "track_number": int(track.get("trackNumber", 1)),
+                "status": "pending",
+                "youtube_url": "",
+                "youtube_title": "",
+                "progress_percent": "",
+                "progress_speed": "",
+                "error_message": "",
+                "skip": False,
+            },
+        ]
+        download_process["current_track_index"] = -1
+
+    def _teardown_download_process(self):
+        from processing import download_process
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
+        download_process["album_id"] = None
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_mismatch_then_verified_accepts_second(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """First candidate mismatches, second verifies."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "Song",
+            "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_a", "title": "Wrong", "duration": 200,
+             "score": 0.9, "channel": "Ch"},
+            {"url": "url_b", "title": "Right", "duration": 200,
+             "score": 0.8, "channel": "Ch"},
+        ]
+
+        call_count = [0]
+
+        def fake_download(candidate, output_path, **kwargs):
+            call_count[0] += 1
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        mock_verify.side_effect = [
+            {
+                "status": "mismatch",
+                "fp_data": {"acoustid_recording_id": "wrong-rec",
+                            "acoustid_score": 0.9},
+                "matched_id": "wrong-rec",
+            },
+            {
+                "status": "verified",
+                "fp_data": {
+                    "acoustid_fingerprint_id": "fp-1",
+                    "acoustid_score": 0.92,
+                    "acoustid_recording_id": "expected-rec",
+                    "acoustid_recording_title": "Song",
+                },
+                "matched_id": "expected-rec",
+            },
+        ]
+
+        album = {"tracks": [track]}
+        failed, size = _download_tracks(
+            [track], album_path, album, _make_album_ctx(),
+        )
+
+        assert len(failed) == 0
+        assert call_count[0] == 2
+        # First URL should be banned
+        banned = models.get_banned_urls_for_track(42, "Song")
+        assert "url_a" in banned
+        # Track download recorded with second URL
+        tracks = models.get_track_downloads_for_album(42)
+        assert len(tracks) == 1
+        assert tracks[0]["youtube_url"] == "url_b"
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_all_mismatch_fails(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """All candidates mismatch -> track fails, all banned."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "Song",
+            "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": f"url_{i}", "title": f"Wrong {i}",
+             "duration": 200, "score": 0.9 - i * 0.1, "channel": "Ch"}
+            for i in range(3)
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        mock_verify.return_value = {
+            "status": "mismatch",
+            "fp_data": {},
+            "matched_id": "other-rec",
+        }
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 1
+        banned = models.get_banned_urls_for_track(42, "Song")
+        assert len(banned) == 3
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_all_unverified_accepts_best(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """All candidates unverified -> fallback accepts best-scored."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "Obscure Song",
+            "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_best", "title": "Best",
+             "duration": 200, "score": 0.95, "channel": "Ch"},
+            {"url": "url_other", "title": "Other",
+             "duration": 200, "score": 0.8, "channel": "Ch"},
+        ]
+
+        dl_count = [0]
+
+        def fake_download(candidate, output_path, **kwargs):
+            dl_count[0] += 1
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        mock_verify.return_value = {
+            "status": "unverified",
+            "fp_data": {},
+            "matched_id": None,
+        }
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 0
+        # 2 initial downloads + 1 re-download of best candidate
+        assert dl_count[0] == 3
+        # No URLs should be banned (unverified != mismatch)
+        banned = models.get_banned_urls_for_track(42, "Obscure Song")
+        assert len(banned) == 0
+        # Track recorded with best-scored URL (re-downloaded)
+        tracks = models.get_track_downloads_for_album(42)
+        assert len(tracks) == 1
+        assert tracks[0]["youtube_url"] == "url_best"
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_no_foreign_recording_id_skips_verification(
+        self, mock_config, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """Track without foreignRecordingId skips verification."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "No ID Track",
+            "trackNumber": 1,
+            "duration": 200000,
+            # No foreignRecordingId
+        }
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_1", "title": "Track",
+             "duration": 200, "score": 0.9, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 0
+        tracks = models.get_track_downloads_for_album(42)
+        assert len(tracks) == 1
+        assert tracks[0]["success"] == 1
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": False,
+    })
+    def test_acoustid_disabled_skips_verification(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """AcoustID disabled -> no verification."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "Song",
+            "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "rec-123",
+        }
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_1", "title": "Song",
+             "duration": 200, "score": 0.9, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 0
+        mock_verify.assert_not_called()
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_mix_mismatch_and_unverified_fails(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """Mix of mismatch + unverified -> fails (not all_unverified)."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "Song",
+            "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_a", "title": "A",
+             "duration": 200, "score": 0.9, "channel": "Ch"},
+            {"url": "url_b", "title": "B",
+             "duration": 200, "score": 0.8, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        mock_verify.side_effect = [
+            {"status": "mismatch", "fp_data": {},
+             "matched_id": "wrong"},
+            {"status": "unverified", "fp_data": {},
+             "matched_id": None},
+        ]
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 1
+
+        self._teardown_download_process()

@@ -15,8 +15,11 @@ import uuid
 
 import models
 from config import load_config
-from downloader import download_track_youtube
-from fingerprint import fingerprint_track
+from downloader import (
+    download_youtube_candidate,
+    search_youtube_candidates,
+)
+from fingerprint import fingerprint_track, verify_fingerprint
 from lidarr import get_valid_release_id, lidarr_request
 from metadata import (
     create_xml_metadata,
@@ -424,50 +427,28 @@ def _download_tracks(
     )
 
     def _process_single_track(idx, track):
-        """Download, tag, and record a single track. Thread-safe."""
-        track_state = download_process["tracks"][idx]
+        nonlocal total_downloaded_size
 
-        if download_process["stop"] or track_state.get("skip"):
-            track_state["status"] = "skipped"
-            logger.info(
-                "Track %d/%d skipped: %s",
-                idx + 1, len(tracks_to_download),
-                track["title"],
+        track_state = download_process["tracks"][idx]
+        download_process["current_track_index"] = idx
+        track_title = track.get("title", f"Track {idx + 1}")
+        track_num = int(track.get("trackNumber", idx + 1))
+        track_duration_ms = track.get("duration")
+        expected_recording_id = track.get("foreignRecordingId")
+        sanitized_track = sanitize_filename(track_title)
+
+        def _skip_check():
+            return (
+                track_state.get("skip")
+                or download_process.get("stop")
             )
+
+        if _skip_check():
+            track_state["status"] = "skipped"
             return
 
-        track_title = track["title"]
-        try:
-            track_num = int(track.get("trackNumber", idx + 1))
-        except (ValueError, TypeError):
-            track_num = idx + 1
-
-        track_state["status"] = "searching"
-        download_process["current_track_index"] = idx
-
-        logger.info(
-            "Downloading track %d/%d: %s",
-            idx + 1, len(tracks_to_download), track_title,
-        )
-
-        sanitized_track = sanitize_filename(track_title)
-        temp_file = os.path.join(
-            album_path,
-            f"temp_{track_num:02d}_{uuid.uuid4().hex[:8]}",
-        )
-        final_file = os.path.join(
-            album_path, f"{track_num:02d} - {sanitized_track}.mp3",
-        )
-
-        track_duration_ms = track.get("duration")
-
-        def _skip_check(ts=track_state):
-            return ts.get("skip", False) or download_process["stop"]
-
         progress_hook = _make_progress_hook(idx)
-
-        dl_result_box = [None]
-        dl_error_box = [None]
+        track_state["status"] = "searching"
 
         try:
             banned_url_set = models.get_banned_urls_for_track(
@@ -481,228 +462,396 @@ def _download_tracks(
             )
             banned_url_set = set()
 
-        def _run_download():
+        candidates = search_youtube_candidates(
+            f"{artist_name} {track_title} official audio",
+            track_title,
+            track_duration_ms,
+            skip_check=_skip_check,
+            banned_urls=banned_url_set,
+        )
+
+        if not candidates:
+            if _skip_check():
+                track_state["status"] = "skipped"
+                return
+            fail_reason = (
+                "No suitable YouTube match found"
+                " (filtered by duration/forbidden words)"
+            )
+            track_state["status"] = "failed"
+            track_state["error_message"] = fail_reason
+            with _results_lock:
+                failed_tracks.append({
+                    "title": track_title,
+                    "reason": fail_reason,
+                    "track_num": track_num,
+                })
             try:
-                dl_result_box[0] = download_track_youtube(
-                    f"{artist_name} {track_title} official audio",
-                    temp_file,
-                    track_title,
-                    track_duration_ms,
+                models.add_track_download(
+                    album_id=album_id, album_title=album_title,
+                    artist_name=artist_name,
+                    track_title=track_title,
+                    track_number=track_num, success=False,
+                    error_message=fail_reason,
+                    youtube_url="", youtube_title="",
+                    match_score=0.0, duration_seconds=0,
+                    album_path=album_path,
+                    lidarr_album_path=lidarr_album_path,
+                    cover_url=cover_url,
+                )
+            except Exception:
+                logger.error(
+                    "Failed to record track download for"
+                    " '%s' (album %d)",
+                    track_title, album_id, exc_info=True,
+                )
+            return
+
+        all_unverified = True
+        best_unverified_candidate = None
+        accepted = False
+        any_downloaded = False
+
+        for ci, candidate in enumerate(candidates):
+            if _skip_check():
+                track_state["status"] = "skipped"
+                return
+
+            track_state["status"] = "downloading"
+            attempt_temp = os.path.join(
+                album_path,
+                f"temp_{track_num:02d}_{uuid.uuid4().hex[:8]}",
+            )
+
+            dl_result_box = [None]
+            dl_error_box = [None]
+
+            def _run_dl(cand=candidate, tmp=attempt_temp):
+                try:
+                    dl_result_box[0] = download_youtube_candidate(
+                        cand, tmp,
+                        progress_hook=progress_hook,
+                        skip_check=_skip_check,
+                    )
+                except TrackSkippedException:
+                    dl_error_box[0] = "skipped"
+                except Exception as exc:
+                    dl_error_box[0] = exc
+
+            dl_thread = threading.Thread(
+                target=_run_dl, daemon=True,
+            )
+            dl_thread.start()
+
+            while dl_thread.is_alive():
+                dl_thread.join(timeout=0.5)
+                if dl_thread.is_alive() and _skip_check():
+                    _cleanup_temp_files(attempt_temp)
+                    track_state["status"] = "skipped"
+                    return
+
+            if dl_error_box[0] == "skipped":
+                _cleanup_temp_files(attempt_temp)
+                track_state["status"] = "skipped"
+                return
+
+            if isinstance(dl_error_box[0], Exception):
+                _cleanup_temp_files(attempt_temp)
+                continue
+
+            dl_result = dl_result_box[0]
+            if dl_result is None or dl_result.get("skipped"):
+                _cleanup_temp_files(attempt_temp)
+                if dl_result and dl_result.get("skipped"):
+                    track_state["status"] = "skipped"
+                    return
+                continue
+
+            if not dl_result.get("success"):
+                _cleanup_temp_files(attempt_temp)
+                continue
+
+            actual_file = attempt_temp + ".mp3"
+            if not os.path.exists(actual_file):
+                continue
+
+            any_downloaded = True
+            track_state["status"] = "tagging"
+            track_state["youtube_url"] = dl_result.get(
+                "youtube_url", "",
+            )
+            track_state["youtube_title"] = dl_result.get(
+                "youtube_title", "",
+            )
+            tag_mp3(actual_file, track, album, cover_data)
+
+            cfg = load_config()
+            should_verify = (
+                cfg.get("acoustid_enabled", True)
+                and cfg.get("acoustid_api_key", "")
+                and expected_recording_id
+            )
+
+            fp_data = {}
+
+            if should_verify:
+                track_state["status"] = "verifying"
+                vresult = verify_fingerprint(
+                    actual_file,
+                    expected_recording_id,
+                    cfg["acoustid_api_key"],
+                )
+
+                if vresult is None:
+                    # fpcalc unavailable — skip verification
+                    pass
+                elif vresult["status"] == "verified":
+                    fp_data = vresult["fp_data"]
+                elif vresult["status"] == "mismatch":
+                    all_unverified = False
+                    remaining = len(candidates) - ci - 1
+                    next_msg = (
+                        f"Trying next candidate"
+                        f" ({ci + 2}/{len(candidates)})."
+                        if remaining > 0
+                        else "No more candidates."
+                    )
+                    logger.info(
+                        "AcoustID verification failed for"
+                        " '%s': expected=%s, got=%s"
+                        " (score=%.2f). %s",
+                        track_title,
+                        expected_recording_id,
+                        vresult["matched_id"],
+                        vresult["fp_data"].get("acoustid_score", 0),
+                        next_msg,
+                    )
+                    _cleanup_temp_files(attempt_temp)
+                    try:
+                        models.add_banned_url(
+                            youtube_url=candidate["url"],
+                            youtube_title=candidate["title"],
+                            album_id=album_id,
+                            album_title=album_title,
+                            artist_name=artist_name,
+                            track_title=track_title,
+                            track_number=track_num,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to ban URL %s",
+                            candidate["url"],
+                            exc_info=True,
+                        )
+                    track_state["youtube_url"] = ""
+                    track_state["youtube_title"] = ""
+                    continue
+                elif vresult["status"] == "unverified":
+                    if best_unverified_candidate is None:
+                        best_unverified_candidate = candidate
+                    _cleanup_temp_files(attempt_temp)
+                    continue
+            else:
+                # No verification — run standard fingerprint if enabled
+                if cfg.get("acoustid_enabled", True):
+                    api_key = cfg.get("acoustid_api_key", "")
+                    if api_key:
+                        track_state["status"] = "fingerprinting"
+                        fp_result = fingerprint_track(
+                            actual_file, api_key,
+                        )
+                        if fp_result:
+                            fp_data = fp_result
+
+            # === Accept the file ===
+            if cfg.get("xml_metadata_enabled", True):
+                logger.info("Creating XML metadata file...")
+                create_xml_metadata(
+                    album_path, artist_name, album_title,
+                    track_num, track_title,
+                    album_mbid, artist_mbid,
+                )
+
+            final_file = os.path.join(
+                album_path,
+                f"{track_num:02d} - {sanitized_track}.mp3",
+            )
+            try:
+                file_size = os.path.getsize(actual_file)
+            except OSError:
+                file_size = 0
+            shutil.move(actual_file, final_file)
+            track_state["status"] = "done"
+            with _results_lock:
+                total_downloaded_size += file_size
+            try:
+                models.add_track_download(
+                    album_id=album_id,
+                    album_title=album_title,
+                    artist_name=artist_name,
+                    track_title=track_title,
+                    track_number=track_num, success=True,
+                    error_message="",
+                    youtube_url=dl_result.get("youtube_url", ""),
+                    youtube_title=dl_result.get("youtube_title", ""),
+                    match_score=dl_result.get("match_score", 0.0),
+                    duration_seconds=dl_result.get(
+                        "duration_seconds", 0,
+                    ),
+                    album_path=album_path,
+                    lidarr_album_path=lidarr_album_path,
+                    cover_url=cover_url,
+                    acoustid_fingerprint_id=fp_data.get(
+                        "acoustid_fingerprint_id", "",
+                    ),
+                    acoustid_score=fp_data.get("acoustid_score", 0.0),
+                    acoustid_recording_id=fp_data.get(
+                        "acoustid_recording_id", "",
+                    ),
+                    acoustid_recording_title=fp_data.get(
+                        "acoustid_recording_title", "",
+                    ),
+                )
+            except Exception:
+                logger.error(
+                    "Failed to record track download for"
+                    " '%s' (album %d)",
+                    track_title, album_id, exc_info=True,
+                )
+            accepted = True
+            break
+
+        if not accepted:
+            if all_unverified and best_unverified_candidate:
+                # Re-download best unverified, accept without verify
+                track_state["status"] = "downloading"
+                fallback_temp = os.path.join(
+                    album_path,
+                    f"temp_{track_num:02d}_{uuid.uuid4().hex[:8]}",
+                )
+                fb_result = download_youtube_candidate(
+                    best_unverified_candidate, fallback_temp,
                     progress_hook=progress_hook,
                     skip_check=_skip_check,
-                    banned_urls=banned_url_set,
                 )
-            except TrackSkippedException:
-                dl_error_box[0] = "skipped"
-            except Exception as exc:
-                dl_error_box[0] = exc
-
-        dl_thread = threading.Thread(
-            target=_run_download, daemon=True,
-        )
-        dl_thread.start()
-
-        while dl_thread.is_alive():
-            dl_thread.join(timeout=0.5)
-            if dl_thread.is_alive() and (
-                track_state.get("skip") or download_process["stop"]
-            ):
-                logger.info(
-                    "Track %d skip/stop requested, abandoning: %s",
-                    idx + 1, track_title,
-                )
-                _cleanup_temp_files(temp_file)
-                track_state["status"] = "skipped"
-                break
-
-        if track_state["status"] == "skipped":
-            return
-
-        if dl_error_box[0] == "skipped":
-            _cleanup_temp_files(temp_file)
-            track_state["status"] = "skipped"
-            logger.info(
-                "Track %d skipped during download: %s",
-                idx + 1, track_title,
-            )
-            return
-
-        if isinstance(dl_error_box[0], Exception):
-            logger.error(
-                "Track %d download error: %s",
-                idx + 1, dl_error_box[0],
-            )
-            track_state["status"] = "failed"
-            track_state["error_message"] = str(dl_error_box[0])[:200]
-            with _results_lock:
-                failed_tracks.append(track)
-            return
-
-        download_result = dl_result_box[0]
-        if download_result is None:
-            track_state["status"] = "failed"
-            track_state["error_message"] = "Download returned no result"
-            with _results_lock:
-                failed_tracks.append(track)
-            return
-
-        if download_result.get("skipped"):
-            track_state["status"] = "skipped"
-            logger.info("Track %d skipped: %s", idx + 1, track_title)
-            return
-
-        actual_file = temp_file + ".mp3"
-
-        if track_state.get("skip") or download_process["stop"]:
-            _cleanup_temp_files(temp_file)
-            track_state["status"] = "skipped"
-            logger.info(
-                "Track %d skipped after download: %s",
-                idx + 1, track_title,
-            )
-            return
-
-        if download_result.get("success") and os.path.exists(actual_file):
-            _handle_successful_track(
-                idx, track, track_state, track_title, track_num,
-                actual_file, final_file, download_result, album,
-                album_path, album_ctx, _results_lock,
-            )
-        else:
-            _handle_failed_track(
-                idx, track_state, track_title, track_num,
-                temp_file, download_result, album_ctx,
-                failed_tracks, _results_lock,
-            )
-
-    def _handle_successful_track(
-        idx, track, track_state, track_title, track_num,
-        actual_file, final_file, download_result, album,
-        album_path, album_ctx, results_lock,
-    ):
-        nonlocal total_downloaded_size
-
-        track_state["status"] = "tagging"
-        track_state["youtube_url"] = download_result.get(
-            "youtube_url", "",
-        )
-        track_state["youtube_title"] = download_result.get(
-            "youtube_title", "",
-        )
-        logger.info(
-            "Track downloaded successfully: %s", track_title,
-        )
-        time.sleep(0.5)
-        logger.info("Adding metadata tags...")
-        tag_mp3(actual_file, track, album, cover_data)
-        cfg = load_config()
-        if cfg.get("xml_metadata_enabled", True):
-            logger.info("Creating XML metadata file...")
-            create_xml_metadata(
-                album_path, artist_name, album_title,
-                track_num, track_title, album_mbid, artist_mbid,
-            )
-
-        fp_data = {}
-        if cfg.get("acoustid_enabled", True):
-            api_key = cfg.get("acoustid_api_key", "")
-            if api_key:
-                track_state["status"] = "fingerprinting"
-                fp_result = fingerprint_track(actual_file, api_key)
-                if fp_result:
-                    fp_data = fp_result
-                else:
-                    logger.warning(
-                        "AcoustID fingerprint failed for: %s",
-                        track_title,
+                if fb_result.get("skipped"):
+                    _cleanup_temp_files(fallback_temp)
+                    track_state["status"] = "skipped"
+                    return
+                fb_file = fallback_temp + ".mp3"
+                if (
+                    fb_result.get("success")
+                    and os.path.exists(fb_file)
+                ):
+                    track_state["status"] = "tagging"
+                    track_state["youtube_url"] = fb_result.get(
+                        "youtube_url", "",
                     )
+                    track_state["youtube_title"] = fb_result.get(
+                        "youtube_title", "",
+                    )
+                    tag_mp3(fb_file, track, album, cover_data)
+                    cfg = load_config()
+                    if cfg.get("xml_metadata_enabled", True):
+                        create_xml_metadata(
+                            album_path, artist_name,
+                            album_title, track_num,
+                            track_title, album_mbid,
+                            artist_mbid,
+                        )
+                    final_file = os.path.join(
+                        album_path,
+                        f"{track_num:02d} - {sanitized_track}.mp3",
+                    )
+                    try:
+                        file_size = os.path.getsize(fb_file)
+                    except OSError:
+                        file_size = 0
+                    shutil.move(fb_file, final_file)
+                    track_state["status"] = "done"
+                    with _results_lock:
+                        total_downloaded_size += file_size
+                    try:
+                        models.add_track_download(
+                            album_id=album_id,
+                            album_title=album_title,
+                            artist_name=artist_name,
+                            track_title=track_title,
+                            track_number=track_num,
+                            success=True,
+                            error_message="",
+                            youtube_url=fb_result.get(
+                                "youtube_url", "",
+                            ),
+                            youtube_title=fb_result.get(
+                                "youtube_title", "",
+                            ),
+                            match_score=fb_result.get(
+                                "match_score", 0.0,
+                            ),
+                            duration_seconds=fb_result.get(
+                                "duration_seconds", 0,
+                            ),
+                            album_path=album_path,
+                            lidarr_album_path=lidarr_album_path,
+                            cover_url=cover_url,
+                            acoustid_fingerprint_id="",
+                            acoustid_score=0.0,
+                            acoustid_recording_id="",
+                            acoustid_recording_title="",
+                        )
+                    except Exception:
+                        logger.error(
+                            "Failed to record track download"
+                            " for '%s' (album %d)",
+                            track_title, album_id,
+                            exc_info=True,
+                        )
+                    return
+                else:
+                    _cleanup_temp_files(fallback_temp)
 
-        try:
-            file_size = os.path.getsize(actual_file)
-        except OSError as e:
-            logger.debug(
-                "Could not get file size for %s: %s",
-                actual_file, e,
-            )
-            file_size = 0
-        shutil.move(actual_file, final_file)
-        track_state["status"] = "done"
-        with results_lock:
-            total_downloaded_size += file_size
-        try:
-            models.add_track_download(
-                album_id=album_id, album_title=album_title,
-                artist_name=artist_name, track_title=track_title,
-                track_number=track_num, success=True,
-                error_message="",
-                youtube_url=download_result.get("youtube_url", ""),
-                youtube_title=download_result.get(
-                    "youtube_title", "",
-                ),
-                match_score=download_result.get("match_score", 0.0),
-                duration_seconds=download_result.get(
-                    "duration_seconds", 0,
-                ),
-                album_path=album_path,
-                lidarr_album_path=lidarr_album_path,
-                cover_url=cover_url,
-                acoustid_fingerprint_id=fp_data.get(
-                    "acoustid_fingerprint_id", "",
-                ),
-                acoustid_score=fp_data.get(
-                    "acoustid_score", 0.0,
-                ),
-                acoustid_recording_id=fp_data.get(
-                    "acoustid_recording_id", "",
-                ),
-                acoustid_recording_title=fp_data.get(
-                    "acoustid_recording_title", "",
-                ),
-            )
-        except Exception:
-            logger.error(
-                "Failed to record track download for '%s' (album %d)",
-                track_title, album_id, exc_info=True,
-            )
-
-    def _handle_failed_track(
-        idx, track_state, track_title, track_num,
-        temp_file, download_result, album_ctx,
-        failed_list, results_lock,
-    ):
-        fail_reason = download_result.get(
-            "error_message", "Download failed or file not found",
-        )
-        logger.warning(
-            "Failed to download track: %s -- %s",
-            track_title, fail_reason,
-        )
-        _cleanup_temp_files(temp_file)
-        track_state["status"] = "failed"
-        track_state["error_message"] = fail_reason
-        with results_lock:
-            failed_list.append({
-                "title": track_title,
-                "reason": fail_reason,
-                "track_num": track_num,
-            })
-        try:
-            models.add_track_download(
-                album_id=album_id, album_title=album_title,
-                artist_name=artist_name, track_title=track_title,
-                track_number=track_num, success=False,
-                error_message=fail_reason,
-                youtube_url="", youtube_title="",
-                match_score=0.0, duration_seconds=0,
-                album_path=album_path,
-                lidarr_album_path=lidarr_album_path,
-                cover_url=cover_url,
-            )
-        except Exception:
-            logger.error(
-                "Failed to record track download for '%s' (album %d)",
-                track_title, album_id, exc_info=True,
-            )
+            # Determine appropriate error message
+            if not any_downloaded:
+                fail_reason = (
+                    "All candidate downloads failed"
+                    f" (tried {len(candidates)} candidates)"
+                )
+            else:
+                fail_reason = (
+                    "AcoustID verification failed: no candidate"
+                    f" matched expected recording"
+                    f" {expected_recording_id}"
+                    f" (tried {len(candidates)} candidates)"
+                )
+            track_state["status"] = "failed"
+            track_state["error_message"] = fail_reason
+            with _results_lock:
+                failed_tracks.append({
+                    "title": track_title,
+                    "reason": fail_reason,
+                    "track_num": track_num,
+                })
+            try:
+                models.add_track_download(
+                    album_id=album_id,
+                    album_title=album_title,
+                    artist_name=artist_name,
+                    track_title=track_title,
+                    track_number=track_num, success=False,
+                    error_message=fail_reason,
+                    youtube_url="", youtube_title="",
+                    match_score=0.0, duration_seconds=0,
+                    album_path=album_path,
+                    lidarr_album_path=lidarr_album_path,
+                    cover_url=cover_url,
+                )
+            except Exception:
+                logger.error(
+                    "Failed to record track download for"
+                    " '%s' (album %d)",
+                    track_title, album_id, exc_info=True,
+                )
 
     with ThreadPoolExecutor(max_workers=concurrent_tracks) as executor:
         futures = {
