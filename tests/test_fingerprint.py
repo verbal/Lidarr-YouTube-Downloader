@@ -9,6 +9,7 @@ from fingerprint import (
     _run_fpcalc,
     fingerprint_track,
     is_fpcalc_available,
+    verify_fingerprint,
 )
 
 
@@ -169,3 +170,136 @@ def test_fingerprint_track_no_match(monkeypatch):
     )
     result = fingerprint_track("/some/file.mp3", "test-key")
     assert result is None
+
+
+class TestVerifyFingerprint:
+    """verify_fingerprint compares AcoustID result to expected recording."""
+
+    def test_verified_when_expected_id_matches(self, monkeypatch):
+        monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
+        monkeypatch.setattr(
+            "fingerprint._run_fpcalc", lambda f: (200, "AQAA...")
+        )
+        monkeypatch.setattr(
+            "fingerprint._lookup_acoustid",
+            lambda k, d, fp: [{
+                "id": "fp-1",
+                "score": 0.95,
+                "recordings": [{"id": "expected-rec", "title": "Song"}],
+            }],
+        )
+        result = verify_fingerprint(
+            "/file.mp3", "expected-rec", "test-key",
+        )
+        assert result["status"] == "verified"
+        assert result["fp_data"]["acoustid_recording_id"] == "expected-rec"
+        assert result["fp_data"]["acoustid_score"] == 0.95
+        assert result["matched_id"] == "expected-rec"
+
+    def test_mismatch_when_different_id_returned(self, monkeypatch):
+        monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
+        monkeypatch.setattr(
+            "fingerprint._run_fpcalc", lambda f: (200, "AQAA...")
+        )
+        monkeypatch.setattr(
+            "fingerprint._lookup_acoustid",
+            lambda k, d, fp: [{
+                "id": "fp-1",
+                "score": 0.95,
+                "recordings": [{"id": "other-rec", "title": "Other"}],
+            }],
+        )
+        result = verify_fingerprint(
+            "/file.mp3", "expected-rec", "test-key",
+        )
+        assert result["status"] == "mismatch"
+        assert result["matched_id"] == "other-rec"
+
+    def test_mismatch_when_score_below_threshold(self, monkeypatch):
+        monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
+        monkeypatch.setattr(
+            "fingerprint._run_fpcalc", lambda f: (200, "AQAA...")
+        )
+        monkeypatch.setattr(
+            "fingerprint._lookup_acoustid",
+            lambda k, d, fp: [{
+                "id": "fp-1",
+                "score": 0.50,
+                "recordings": [{"id": "expected-rec", "title": "Song"}],
+            }],
+        )
+        result = verify_fingerprint(
+            "/file.mp3", "expected-rec", "test-key", threshold=0.85,
+        )
+        assert result["status"] == "mismatch"
+
+    def test_unverified_when_empty_results(self, monkeypatch):
+        monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
+        monkeypatch.setattr(
+            "fingerprint._run_fpcalc", lambda f: (200, "AQAA...")
+        )
+        monkeypatch.setattr(
+            "fingerprint._lookup_acoustid",
+            lambda k, d, fp: [],
+        )
+        result = verify_fingerprint(
+            "/file.mp3", "expected-rec", "test-key",
+        )
+        assert result["status"] == "unverified"
+        assert result["matched_id"] is None
+
+    def test_unverified_when_api_error(self, monkeypatch):
+        monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
+        monkeypatch.setattr(
+            "fingerprint._run_fpcalc", lambda f: (200, "AQAA...")
+        )
+        monkeypatch.setattr(
+            "fingerprint._lookup_acoustid",
+            lambda k, d, fp: None,
+        )
+        result = verify_fingerprint(
+            "/file.mp3", "expected-rec", "test-key",
+        )
+        assert result["status"] == "unverified"
+
+    def test_returns_none_when_no_api_key(self):
+        result = verify_fingerprint("/file.mp3", "expected-rec", "")
+        assert result is None
+
+    def test_returns_none_when_no_fpcalc(self, monkeypatch):
+        monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: False)
+        monkeypatch.setattr("fingerprint._fpcalc_warned", False)
+        result = verify_fingerprint(
+            "/file.mp3", "expected-rec", "test-key",
+        )
+        assert result is None
+
+    def test_returns_none_when_fpcalc_fails(self, monkeypatch):
+        monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
+        monkeypatch.setattr("fingerprint._run_fpcalc", lambda f: None)
+        result = verify_fingerprint(
+            "/file.mp3", "expected-rec", "test-key",
+        )
+        assert result is None
+
+    def test_verified_checks_all_recordings(self, monkeypatch):
+        """Expected ID in second recording of a high-score result."""
+        monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
+        monkeypatch.setattr(
+            "fingerprint._run_fpcalc", lambda f: (200, "AQAA...")
+        )
+        monkeypatch.setattr(
+            "fingerprint._lookup_acoustid",
+            lambda k, d, fp: [{
+                "id": "fp-1",
+                "score": 0.92,
+                "recordings": [
+                    {"id": "other-rec", "title": "Other"},
+                    {"id": "expected-rec", "title": "Song"},
+                ],
+            }],
+        )
+        result = verify_fingerprint(
+            "/file.mp3", "expected-rec", "test-key",
+        )
+        assert result["status"] == "verified"

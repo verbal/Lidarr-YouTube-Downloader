@@ -129,6 +129,81 @@ def _extract_best_match(results):
     }
 
 
+def verify_fingerprint(
+    filepath, expected_recording_id, acoustid_api_key, threshold=0.85,
+):
+    """Verify a downloaded file matches the expected MusicBrainz recording.
+
+    Args:
+        filepath: Path to the MP3 file.
+        expected_recording_id: Expected MusicBrainz recording ID.
+        acoustid_api_key: AcoustID API key string.
+        threshold: Minimum score for a match (default 0.85).
+
+    Returns:
+        Dict with "status" ("verified", "mismatch", "unverified"),
+        "fp_data" (dict or empty), and "matched_id" (str or None).
+        None if fingerprinting is unavailable or fails to run.
+    """
+    global _fpcalc_warned
+
+    if not acoustid_api_key:
+        return None
+
+    if not is_fpcalc_available():
+        if not _fpcalc_warned:
+            logger.warning(
+                "fpcalc not found — AcoustID fingerprinting disabled."
+                " Install chromaprint to enable."
+            )
+            _fpcalc_warned = True
+        return None
+
+    fp_result = _run_fpcalc(filepath)
+    if fp_result is None:
+        return None
+
+    duration, fingerprint = fp_result
+    results = _lookup_acoustid(acoustid_api_key, duration, fingerprint)
+
+    if not results:
+        return {
+            "status": "unverified",
+            "fp_data": {},
+            "matched_id": None,
+        }
+
+    # Check if expected ID appears in any high-score result
+    for result in results:
+        score = result.get("score", 0.0)
+        if score < threshold:
+            continue
+        for recording in result.get("recordings", []):
+            if recording.get("id") == expected_recording_id:
+                fp_data = {
+                    "acoustid_fingerprint_id": result.get("id"),
+                    "acoustid_score": round(score, 4),
+                    "acoustid_recording_id": expected_recording_id,
+                    "acoustid_recording_title": (
+                        recording.get("title") or ""
+                    ),
+                }
+                return {
+                    "status": "verified",
+                    "fp_data": fp_data,
+                    "matched_id": expected_recording_id,
+                }
+
+    # Expected ID not found — extract best match for reporting
+    best = _extract_best_match(results)
+    matched_id = best["acoustid_recording_id"] if best else None
+    return {
+        "status": "mismatch",
+        "fp_data": best or {},
+        "matched_id": matched_id,
+    }
+
+
 def fingerprint_track(filepath, acoustid_api_key):
     """Fingerprint an audio file and look up its AcoustID metadata.
 
