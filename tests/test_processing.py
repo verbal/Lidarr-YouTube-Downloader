@@ -773,6 +773,64 @@ class TestVerifyRetryLoop:
         "acoustid_enabled": True,
         "acoustid_api_key": "test-key",
     })
+    def test_verify_returns_none_accepts_without_verification(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """verify_fingerprint returns None (fpcalc unavailable) -> accept."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "Song",
+            "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_1", "title": "Song",
+             "duration": 200, "score": 0.9, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        mock_verify.return_value = None
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 0
+        tracks = models.get_track_downloads_for_album(42)
+        assert len(tracks) == 1
+        assert tracks[0]["success"] == 1
+        assert tracks[0]["youtube_url"] == "url_1"
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
     def test_mix_mismatch_and_unverified_fails(
         self, mock_config, mock_verify, mock_tag,
         mock_dl_candidate, mock_search, tmp_path,
