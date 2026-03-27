@@ -831,13 +831,11 @@
             setTimeout(() => toggle.classList.remove('spin'), 500);
         }
 
-
         if (localStorage.getItem('theme') === 'light') {
             document.body.classList.add('light');
             document.getElementById('theme-icon').classList.remove('fa-moon');
             document.getElementById('theme-icon').classList.add('fa-sun');
         }
-
 
         let failedAlbumId = null;
 
@@ -862,7 +860,6 @@
             } catch (_) {}
         }
 
-
         function formatTimestamp(timestamp) {
             const date = new Date(timestamp * 1000);
             const now = new Date();
@@ -879,7 +876,6 @@
             return date.toLocaleString();
         }
 
-
         function getLogTypeInfo(type) {
             const types = {
                 'download_started': { name: 'Download Started', icon: 'fa-play-circle' },
@@ -893,7 +889,6 @@
             };
             return types[type] || { name: type, icon: 'fa-info-circle' };
         }
-
 
         function renderLogCard(log) {
             const typeInfo = getLogTypeInfo(log.type);
@@ -944,7 +939,6 @@
             `;
         }
 
-
         function updateLogsLoadMore() {
             const loadMoreDiv = document.getElementById('logsLoadMore');
             const remaining = currentFilteredLogs.length - logsDisplayed;
@@ -956,7 +950,6 @@
             }
         }
 
-
         function loadMoreLogs() {
             const container = document.getElementById('logsContainer');
             const nextBatch = currentFilteredLogs.slice(logsDisplayed, logsDisplayed + LOGS_PER_PAGE);
@@ -964,7 +957,6 @@
             logsDisplayed += nextBatch.length;
             updateLogsLoadMore();
         }
-
 
         function filterLogs() {
             currentFilter = document.getElementById('filterType').value;
@@ -974,7 +966,6 @@
 
             renderLogs(currentFilteredLogs);
         }
-
 
         function renderLogs(logs) {
             const container = document.getElementById('logsContainer');
@@ -993,7 +984,6 @@
             logsDisplayed = firstBatch.length;
             updateLogsLoadMore();
         }
-
 
         async function dismissLog(logId) {
             if (!confirm('Are you sure you want to dismiss this log entry?')) return;
@@ -1021,7 +1011,6 @@
             }
         }
 
-
         async function clearAllLogs() {
             if (!confirm('Are you sure you want to clear all logs? This action cannot be undone.')) return;
 
@@ -1041,7 +1030,6 @@
             }
         }
 
-
         const style = document.createElement('style');
         style.textContent = `
             @keyframes slideOut {
@@ -1053,8 +1041,6 @@
         `;
         document.head.appendChild(style);
 
-
-        /* Load failed album context before rendering logs so the retry button appears on first render */
         (async () => {
             try {
                 const res = await fetch('/api/download/failed');
@@ -1088,7 +1074,6 @@
         setInterval(updateQueueBadge, 5000);
 
         setInterval(fetchLogs, 30000);
-
 
     </script>
 </body>
