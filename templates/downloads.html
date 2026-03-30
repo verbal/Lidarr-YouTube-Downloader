@@ -415,13 +415,40 @@
             border-radius: 12px;
             margin-bottom: 0.65rem;
             align-items: center;
-            transition: all 0.3s ease;
+            transition: border-color 0.2s ease, opacity 0.2s ease, background 0.2s ease;
             border: 1px solid transparent;
+            cursor: default;
         }
 
         .queue-item:hover {
-            transform: translateX(4px);
             border-color: var(--border-glass);
+        }
+
+        .queue-item.dragging {
+            opacity: 0.35;
+        }
+
+        .queue-item.drag-over {
+            border-color: var(--primary);
+            background: var(--surface-glass);
+        }
+
+        .drag-handle {
+            color: var(--text-dim);
+            cursor: grab;
+            font-size: 0.85rem;
+            padding: 0 0.1rem;
+            flex-shrink: 0;
+            opacity: 0.5;
+            transition: opacity 0.2s;
+        }
+
+        .queue-item:hover .drag-handle {
+            opacity: 1;
+        }
+
+        .drag-handle:active {
+            cursor: grabbing;
         }
 
         .queue-position {
@@ -937,32 +964,30 @@
             `;
         }
 
-        function updateQueueFromSSE(queue, statusData) {
+        let currentQueue = [];
+        let isDragging = false;
+        let dragSourceId = null;
+
+        const placeholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`;
+
+        function renderQueue(queue) {
             const container = document.getElementById('downloadQueue');
-
-            const totalInQueue = queue.length + (statusData.active ? 1 : 0);
-            const badge = document.getElementById('queueBadge');
-            if (totalInQueue > 0) {
-                badge.textContent = totalInQueue;
-                badge.classList.add('active');
-            } else {
-                badge.classList.remove('active');
-            }
-
             if (queue.length === 0) {
                 container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-list-check"></i><p>Queue is empty</p></div>';
                 return;
             }
-
-            const placeholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`;
-
             container.innerHTML = queue.map((item, index) => {
                 const safeQCover = sanitizeUrl(item.cover_url);
                 const queueCover = safeQCover
                     ? `<img class="queue-album-cover" src="${safeQCover}" alt="">`
                     : `<div class="queue-cover-placeholder">${placeholderSvg}</div>`;
                 return `
-                <div class="queue-item">
+                <div class="queue-item" draggable="true"
+                     ondragstart="onQueueDragStart(event, ${item.id})"
+                     ondragover="onQueueDragOver(event)"
+                     ondrop="onQueueDrop(event, ${item.id})"
+                     ondragend="onQueueDragEnd(event)">
+                    <div class="drag-handle"><i class="fa-solid fa-grip-vertical"></i></div>
                     <div class="queue-position">${index + 1}</div>
                     ${queueCover}
                     <div class="queue-album-info">
@@ -972,9 +997,66 @@
                     <div class="queue-actions">
                         <button onclick="removeFromQueue(${item.id})">Remove</button>
                     </div>
-                </div>
-            `;
+                </div>`;
             }).join('');
+        }
+
+        function updateQueueFromSSE(queue, statusData) {
+            const totalInQueue = queue.length + (statusData.active ? 1 : 0);
+            const badge = document.getElementById('queueBadge');
+            if (totalInQueue > 0) {
+                badge.textContent = totalInQueue;
+                badge.classList.add('active');
+            } else {
+                badge.classList.remove('active');
+            }
+            if (!isDragging) {
+                currentQueue = queue;
+                renderQueue(queue);
+            }
+        }
+
+        function onQueueDragStart(e, albumId) {
+            isDragging = true;
+            dragSourceId = albumId;
+            e.dataTransfer.effectAllowed = 'move';
+            e.currentTarget.classList.add('dragging');
+        }
+
+        function onQueueDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            document.querySelectorAll('.queue-item').forEach(el => el.classList.remove('drag-over'));
+            e.currentTarget.classList.add('drag-over');
+        }
+
+        function onQueueDrop(e, targetId) {
+            e.preventDefault();
+            document.querySelectorAll('.queue-item').forEach(el => {
+                el.classList.remove('drag-over', 'dragging');
+            });
+            isDragging = false;
+            if (dragSourceId === targetId) return;
+            const srcIdx = currentQueue.findIndex(q => q.id === dragSourceId);
+            const tgtIdx = currentQueue.findIndex(q => q.id === targetId);
+            if (srcIdx === -1 || tgtIdx === -1) return;
+            const newQueue = [...currentQueue];
+            const [moved] = newQueue.splice(srcIdx, 1);
+            newQueue.splice(tgtIdx, 0, moved);
+            currentQueue = newQueue;
+            renderQueue(newQueue);
+            fetch('/api/download/queue/reorder', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ queue: newQueue.map(q => q.id) })
+            });
+        }
+
+        function onQueueDragEnd(e) {
+            isDragging = false;
+            document.querySelectorAll('.queue-item').forEach(el => {
+                el.classList.remove('dragging', 'drag-over');
+            });
         }
 
         const HISTORY_PER_PAGE = 25;
