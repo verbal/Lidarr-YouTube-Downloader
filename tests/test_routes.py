@@ -1136,6 +1136,37 @@ class TestSafeStreamUrl:
 
         assert not _is_safe_stream_url("")
 
+    def test_allows_bare_googlevideo_domain(self):
+        from app import _is_safe_stream_url
+
+        assert _is_safe_stream_url(
+            "https://googlevideo.com/videoplayback?id=123"
+        )
+
+    def test_blocks_lookalike_suffix(self):
+        from app import _is_safe_stream_url
+
+        assert not _is_safe_stream_url(
+            "https://evilgooglevideo.com/audio"
+        )
+
+    def test_blocks_subdomain_of_evil_containing_safe_domain(self):
+        from app import _is_safe_stream_url
+
+        assert not _is_safe_stream_url(
+            "https://googlevideo.com.evil.com/audio"
+        )
+
+    def test_blocks_none_input(self):
+        from app import _is_safe_stream_url
+
+        assert not _is_safe_stream_url(None)
+
+    def test_blocks_non_string_input(self):
+        from app import _is_safe_stream_url
+
+        assert not _is_safe_stream_url(12345)
+
 
 class TestValidateYoutubeUrl:
     """Tests for _validate_youtube_url allowlist."""
@@ -1199,8 +1230,24 @@ class TestPathContainment:
         assert "\\" not in result
         assert ".." not in result
 
-    def test_validate_target_path_blocks_escape(self, client, tmp_path):
+    def test_validate_target_path_blocks_escape(self, tmp_path):
         from app import _validate_target_path
 
         config = {"lidarr_path": str(tmp_path / "music")}
         assert not _validate_target_path("/etc/evil", config)
+
+    def test_validate_target_path_allows_valid_child(self, tmp_path):
+        from app import _validate_target_path
+
+        music = tmp_path / "music"
+        config = {"lidarr_path": str(music)}
+        assert _validate_target_path(
+            str(music / "Artist" / "Album"), config
+        )
+
+    def test_validate_target_path_allows_exact_base(self, tmp_path):
+        from app import _validate_target_path
+
+        music = tmp_path / "music"
+        config = {"lidarr_path": str(music)}
+        assert _validate_target_path(str(music), config)

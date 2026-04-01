@@ -289,6 +289,43 @@ def test_get_logs_db_size():
     assert size > 0
 
 
+def test_get_logs_pagination():
+    for i in range(3):
+        models.add_log("album_error", i, f"A{i}", "Artist")
+    page1 = models.get_logs(page=1, per_page=2)
+    assert len(page1["items"]) == 2
+    assert page1["total"] == 3
+    assert page1["pages"] == 2
+    page2 = models.get_logs(page=2, per_page=2)
+    assert len(page2["items"]) == 1
+
+
+def test_get_logs_filtered_pagination():
+    for i in range(3):
+        models.add_log("album_error", i, f"A{i}", "Artist")
+    models.add_log("download_success", 99, "B", "Artist")
+    page1 = models.get_logs(page=1, per_page=2, log_type="album_error")
+    assert len(page1["items"]) == 2
+    assert page1["total"] == 3
+    page2 = models.get_logs(page=2, per_page=2, log_type="album_error")
+    assert len(page2["items"]) == 1
+
+
+def test_get_banned_urls_pagination():
+    for i in range(3):
+        models.add_banned_url(
+            youtube_url=f"https://youtube.com/watch?v={i:011d}",
+            youtube_title=f"V{i}", album_id=i, album_title=f"A{i}",
+            artist_name="A", track_title="T", track_number=1,
+        )
+    page1 = models.get_banned_urls(page=1, per_page=2)
+    assert len(page1["items"]) == 2
+    assert page1["total"] == 3
+    assert page1["pages"] == 2
+    page2 = models.get_banned_urls(page=2, per_page=2)
+    assert len(page2["items"]) == 1
+
+
 # --- Queue (unchanged) ---
 
 

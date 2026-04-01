@@ -24,13 +24,13 @@ from flask import (
     request,
     send_from_directory,
 )
-from markupsafe import escape as markupsafe_escape
 from werkzeug.utils import secure_filename as werkzeug_secure_filename
 
 import db
 import models
 from config import ALLOWED_CONFIG_KEYS, load_config, save_config
 from downloader import get_ytdlp_version
+from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
 from metadata import create_xml_metadata, get_itunes_tracks, tag_mp3
 from processing import (
@@ -42,7 +42,6 @@ from processing import (
     stop_download,
 )
 from scheduler import run_scheduler, setup_scheduler
-from fingerprint import fingerprint_track
 from utils import check_rate_limit, format_bytes, sanitize_filename, set_permissions
 
 logging.basicConfig(
@@ -113,7 +112,9 @@ def api_config():
     if request.method == "GET":
         return jsonify(load_config())
     client_ip = request.remote_addr or "unknown"
-    if not check_rate_limit(f"config:{client_ip}", rate_limit_store, window=5, max_requests=3):
+    if not check_rate_limit(
+        f"config:{client_ip}", rate_limit_store, window=5, max_requests=3
+    ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
     current = load_config()
     incoming = request.json or {}
@@ -153,7 +154,9 @@ def api_config_import():
     else:
         return jsonify({"success": False, "message": "No config data provided"}), 400
     if not isinstance(incoming, dict):
-        return jsonify({"success": False, "message": "Config must be a JSON object"}), 400
+        return jsonify(
+            {"success": False, "message": "Config must be a JSON object"}
+        ), 400
     current = load_config()
     applied_keys = []
     skipped_keys = []
@@ -164,15 +167,17 @@ def api_config_import():
         else:
             skipped_keys.append(key)
     save_config(current)
-    return jsonify({
-        "success": True,
-        "applied": len(applied_keys),
-        "skipped": len(skipped_keys),
-        "message": (
-            f"Imported {len(applied_keys)} settings."
-            f" {len(skipped_keys)} keys skipped."
-        ),
-    })
+    return jsonify(
+        {
+            "success": True,
+            "applied": len(applied_keys),
+            "skipped": len(skipped_keys),
+            "message": (
+                f"Imported {len(applied_keys)} settings."
+                f" {len(skipped_keys)} keys skipped."
+            ),
+        }
+    )
 
 
 # --- Lidarr / album routes ---
@@ -183,10 +188,12 @@ def api_test_connection():
     system = lidarr_request("system/status")
     if "error" in system:
         return jsonify({"status": "error", "message": system["error"]})
-    return jsonify({
-        "status": "success" if "version" in system else "error",
-        "lidarr_version": system.get("version", "Unknown"),
-    })
+    return jsonify(
+        {
+            "status": "success" if "version" in system else "error",
+            "lidarr_version": system.get("version", "Unknown"),
+        }
+    )
 
 
 @app.route("/api/missing-albums")
@@ -217,7 +224,9 @@ def _pip_update_ytdlp():
     try:
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", "-U", "yt-dlp[default]"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if result.returncode != 0:
             return None, None, result.stderr[-500:] if result.stderr else "pip failed"
@@ -235,21 +244,25 @@ def api_ytdlp_update():
     if not check_rate_limit(
         f"ytdlp_update:{client_ip}", rate_limit_store, window=60, max_requests=1
     ):
-        return jsonify({
-            "success": False,
-            "message": "Update already in progress or rate limited",
-        }), 429
+        return jsonify(
+            {
+                "success": False,
+                "message": "Update already in progress or rate limited",
+            }
+        ), 429
     old_version, new_version, error = _pip_update_ytdlp()
     if error:
         return jsonify({"success": False, "message": error})
     updated = old_version != new_version
-    return jsonify({
-        "success": True,
-        "old_version": old_version,
-        "new_version": new_version,
-        "updated": updated,
-        "restart_required": updated,
-    })
+    return jsonify(
+        {
+            "success": True,
+            "old_version": old_version,
+            "new_version": new_version,
+            "updated": updated,
+            "restart_required": updated,
+        }
+    )
 
 
 # --- Restart ---
@@ -266,10 +279,12 @@ def _exec_restart():
 @app.route("/api/restart", methods=["POST"])
 def api_restart():
     if download_process.get("active"):
-        return jsonify({
-            "success": False,
-            "message": "A download is in progress. Stop it before restarting.",
-        })
+        return jsonify(
+            {
+                "success": False,
+                "message": "A download is in progress. Stop it before restarting.",
+            }
+        )
 
     def _do_restart():
         time.sleep(0.5)
@@ -286,10 +301,12 @@ def api_restart():
 def api_download(album_id):
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(f"download:{client_ip}", rate_limit_store):
-        return jsonify({
-            "success": False,
-            "message": "Too many requests, please slow down",
-        }), 429
+        return jsonify(
+            {
+                "success": False,
+                "message": "Too many requests, please slow down",
+            }
+        ), 429
     with queue_lock:
         current_id = download_process.get("album_id")
     if current_id == album_id:
@@ -315,8 +332,10 @@ def api_download_stop():
 def api_skip_track():
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(
-        f"skip_track:{client_ip}", rate_limit_store,
-        window=5, max_requests=10,
+        f"skip_track:{client_ip}",
+        rate_limit_store,
+        window=5,
+        max_requests=10,
     ):
         return jsonify({"error": "Too many requests"}), 429
     data = request.json or {}
@@ -361,13 +380,19 @@ def api_download_stream():
                                 if img.get("coverType") == "cover":
                                     cover_url = img.get("remoteUrl", "")
                                     break
-                            queue_data.append({
-                                "id": row["album_id"],
-                                "title": album.get("title", ""),
-                                "artist": album.get("artist", {}).get("artistName", ""),
-                                "cover_url": cover_url,
-                                "track_count": album.get("statistics", {}).get("trackCount", 0),
-                            })
+                            queue_data.append(
+                                {
+                                    "id": row["album_id"],
+                                    "title": album.get("title", ""),
+                                    "artist": album.get("artist", {}).get(
+                                        "artistName", ""
+                                    ),
+                                    "cover_url": cover_url,
+                                    "track_count": album.get("statistics", {}).get(
+                                        "trackCount", 0
+                                    ),
+                                }
+                            )
                 data = {
                     "status": dict(download_process),
                     "queue": queue_data,
@@ -394,20 +419,22 @@ def api_get_queue():
     for row in queue_rows:
         album = _get_album_cached(row["album_id"])
         if "error" not in album:
-            queue_with_details.append({
-                "id": row["album_id"],
-                "title": album.get("title", ""),
-                "artist": album.get("artist", {}).get("artistName", ""),
-                "cover": next(
-                    (
-                        img["remoteUrl"]
-                        for img in album.get("images", [])
-                        if img["coverType"] == "cover"
+            queue_with_details.append(
+                {
+                    "id": row["album_id"],
+                    "title": album.get("title", ""),
+                    "artist": album.get("artist", {}).get("artistName", ""),
+                    "cover": next(
+                        (
+                            img["remoteUrl"]
+                            for img in album.get("images", [])
+                            if img["coverType"] == "cover"
+                        ),
+                        "",
                     ),
-                    "",
-                ),
-                "track_count": album.get("statistics", {}).get("trackCount", 0),
-            })
+                    "track_count": album.get("statistics", {}).get("trackCount", 0),
+                }
+            )
     return jsonify(queue_with_details)
 
 
@@ -425,7 +452,9 @@ def api_queue_tracks(album_id):
                 logger.debug(
                     "Lidarr tracks unavailable for album %d,"
                     " falling back to iTunes: %s - %s",
-                    album_id, artist, title,
+                    album_id,
+                    artist,
+                    title,
                 )
                 tracks = get_itunes_tracks(artist, title)
     result = [
@@ -456,10 +485,12 @@ def api_add_to_queue_bulk():
     if not check_rate_limit(
         f"bulk_queue:{client_ip}", rate_limit_store, window=10, max_requests=3
     ):
-        return jsonify({
-            "success": False,
-            "message": "Too many bulk requests, please slow down",
-        }), 429
+        return jsonify(
+            {
+                "success": False,
+                "message": "Too many bulk requests, please slow down",
+            }
+        ), 429
     album_ids = (request.json or {}).get("album_ids", [])
     if not isinstance(album_ids, list):
         return jsonify({"success": False, "message": "album_ids must be a list"}), 400
@@ -470,11 +501,13 @@ def api_add_to_queue_bulk():
         if isinstance(album_id, int) and album_id != current_id:
             if models.enqueue_album(album_id):
                 added += 1
-    return jsonify({
-        "success": True,
-        "added": added,
-        "queue_length": models.get_queue_length(),
-    })
+    return jsonify(
+        {
+            "success": True,
+            "added": added,
+            "queue_length": models.get_queue_length(),
+        }
+    )
 
 
 @app.route("/api/download/queue/<int:album_id>", methods=["DELETE"])
@@ -554,15 +587,18 @@ def api_delete_track(track_id):
         except Exception:
             logger.error(
                 "Failed to ban URL %s for track %s",
-                track_data["youtube_url"], track_data["track_title"],
+                track_data["youtube_url"],
+                track_data["track_title"],
                 exc_info=True,
             )
 
-    return jsonify({
-        "success": True,
-        "file_deleted": file_deleted,
-        "url_banned": url_banned,
-    })
+    return jsonify(
+        {
+            "success": True,
+            "file_deleted": file_deleted,
+            "url_banned": url_banned,
+        }
+    )
 
 
 @app.route("/api/banned-urls")
@@ -587,10 +623,12 @@ def api_remove_banned_url(ban_id):
 def api_stats():
     downloaded_today = models.get_history_count_today()
     in_queue = models.get_queue_length() + (1 if download_process["active"] else 0)
-    return jsonify({
-        "in_queue": in_queue,
-        "downloaded_today": downloaded_today,
-    })
+    return jsonify(
+        {
+            "in_queue": in_queue,
+            "downloaded_today": downloaded_today,
+        }
+    )
 
 
 # --- Logs routes ---
@@ -631,15 +669,17 @@ def api_dismiss_log(log_id):
 def api_download_failed():
     album_id = models.get_latest_download_album_id()
     if album_id is None:
-        return jsonify({
-            "failed_tracks": [],
-            "album_id": None,
-            "album_title": "",
-            "artist_name": "",
-            "cover_url": "",
-            "album_path": "",
-            "lidarr_album_path": "",
-        })
+        return jsonify(
+            {
+                "failed_tracks": [],
+                "album_id": None,
+                "album_title": "",
+                "artist_name": "",
+                "cover_url": "",
+                "album_path": "",
+                "lidarr_album_path": "",
+            }
+        )
     return jsonify(models.get_failed_tracks_for_retry(album_id))
 
 
@@ -737,17 +777,19 @@ def api_youtube_search():
                 url = _entry_watch_url(entry)
                 if url and url not in seen_urls:
                     seen_urls.add(url)
-                    items.append({
-                        "title": entry.get("title", ""),
-                        "url": url,
-                        "duration": entry.get("duration", 0),
-                        "channel": (
-                            entry.get("channel", "")
-                            or entry.get("uploader", "")
-                            or ""
-                        ),
-                        "thumbnail": entry.get("thumbnail", ""),
-                    })
+                    items.append(
+                        {
+                            "title": entry.get("title", ""),
+                            "url": url,
+                            "duration": entry.get("duration", 0),
+                            "channel": (
+                                entry.get("channel", "")
+                                or entry.get("uploader", "")
+                                or ""
+                            ),
+                            "thumbnail": entry.get("thumbnail", ""),
+                        }
+                    )
         return jsonify({"results": items})
     except Exception as e:
         return jsonify({"results": [], "error": str(e)[:200]}), 500
@@ -783,6 +825,10 @@ def api_youtube_stream():
     if cached and now - cached["ts"] < 300:
         audio_url = cached["audio_url"]
         http_headers = cached["http_headers"]
+        if not _is_safe_stream_url(audio_url):
+            logger.error("Cached stream URL failed safety check: %s", audio_url[:100])
+            del _audio_stream_cache[url]
+            return "Unsafe audio stream URL", 403
     else:
         config = load_config()
         ydl_opts = {
@@ -856,7 +902,10 @@ def _proxy_audio_stream(sanitized_url, http_headers, range_header):
 
     try:
         upstream = http_requests.get(
-            sanitized_url, headers=proxy_headers, stream=True, timeout=30,  # nosemgrep
+            sanitized_url,  # nosemgrep
+            headers=proxy_headers,
+            stream=True,
+            timeout=30,
         )
         resp_headers = {
             "Content-Type": upstream.headers.get("Content-Type", "audio/webm"),
@@ -872,7 +921,7 @@ def _proxy_audio_stream(sanitized_url, http_headers, range_header):
             status=upstream.status_code,
             headers=resp_headers,
         )
-    except Exception as e:
+    except (requests.exceptions.RequestException, OSError) as e:
         logger.warning("Stream proxy failed: %s", e)
         return "Stream unavailable", 502
 
@@ -902,17 +951,21 @@ def api_download_manual():
 
     album_id_ctx = models.get_latest_download_album_id()
     if not album_id_ctx:
-        return jsonify({
-            "success": False,
-            "message": "No album context available. Please re-download the album first.",
-        }), 400
+        return jsonify(
+            {
+                "success": False,
+                "message": "No album context available. Please re-download the album first.",
+            }
+        ), 400
 
     album_data = lidarr_request(f"album/{album_id_ctx}")
     if "error" in album_data:
-        return jsonify({
-            "success": False,
-            "message": f"Failed to fetch album from Lidarr: {album_data['error']}",
-        }), 500
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Failed to fetch album from Lidarr: {album_data['error']}",
+            }
+        ), 500
 
     failed_ctx = models.get_failed_tracks_for_retry(album_id_ctx)
     dl_album_path = failed_ctx.get("album_path", "")
@@ -933,8 +986,14 @@ def api_download_manual():
     os.makedirs(target_path, exist_ok=True)
 
     return _execute_manual_download(
-        youtube_url, track_title, track_num, target_path,
-        album_data, album_id_ctx, failed_ctx, config,
+        youtube_url,
+        track_title,
+        track_num,
+        target_path,
+        album_data,
+        album_id_ctx,
+        failed_ctx,
+        config,
     )
 
 
@@ -961,24 +1020,33 @@ def _sanitize_stream_url(stream_url):
     data boundary for static analysis tools.
     """
     parts = urllib.parse.urlparse(stream_url)
-    return urllib.parse.urlunparse((
-        parts.scheme, parts.netloc, parts.path,
-        parts.params, parts.query, parts.fragment,
-    ))
+    return urllib.parse.urlunparse(
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            parts.params,
+            parts.query,
+            parts.fragment,
+        )
+    )
 
 
 def _is_safe_stream_url(stream_url):
     """Validate that a yt-dlp extracted stream URL is safe to proxy."""
-    try:
-        parsed = urllib.parse.urlparse(stream_url)
-    except Exception:
+    if not isinstance(stream_url, str) or not stream_url:
         return False
+    parsed = urllib.parse.urlparse(stream_url)
     if parsed.scheme not in ("http", "https"):
         return False
     hostname = parsed.hostname or ""
     safe_domains = (
-        ".googlevideo.com", ".youtube.com", ".ytimg.com",
-        ".googleusercontent.com", ".gvt1.com", ".ggpht.com",
+        ".googlevideo.com",
+        ".youtube.com",
+        ".ytimg.com",
+        ".googleusercontent.com",
+        ".gvt1.com",
+        ".ggpht.com",
     )
     return any(
         hostname.endswith(domain) or hostname == domain.lstrip(".")
@@ -989,19 +1057,19 @@ def _is_safe_stream_url(stream_url):
 def _validate_youtube_url(youtube_url):
     """Validate and normalize a YouTube URL. Returns URL or None."""
     if not youtube_url.startswith("http"):
-        if not re.match(r'^[a-zA-Z0-9_-]{11}$', youtube_url):
+        if not re.match(r"^[a-zA-Z0-9_-]{11}$", youtube_url):
             return None
-        safe_id = str(markupsafe_escape(youtube_url))
-        return f"https://www.youtube.com/watch?v={safe_id}"  # nosemgrep
-    try:
-        parsed = urllib.parse.urlparse(youtube_url)
-        allowed_hosts = {
-            "youtube.com", "www.youtube.com", "m.youtube.com",
-            "youtu.be", "www.youtu.be", "music.youtube.com",
-        }
-        if parsed.hostname not in allowed_hosts:
-            return None
-    except Exception:
+        return f"https://www.youtube.com/watch?v={youtube_url}"  # nosemgrep
+    parsed = urllib.parse.urlparse(youtube_url)
+    allowed_hosts = {
+        "youtube.com",
+        "www.youtube.com",
+        "m.youtube.com",
+        "youtu.be",
+        "www.youtu.be",
+        "music.youtube.com",
+    }
+    if parsed.hostname not in allowed_hosts:
         return None
     return youtube_url
 
@@ -1020,8 +1088,14 @@ def _validate_target_path(target_path, config):
 
 
 def _execute_manual_download(
-    youtube_url, track_title, track_num, target_path,
-    album_data, album_id_ctx, failed_ctx, config,
+    youtube_url,
+    track_title,
+    track_num,
+    target_path,
+    album_data,
+    album_id_ctx,
+    failed_ctx,
+    config,
 ):
     """Download a single track manually (failed-track retry context)."""
     return _execute_manual_dl(
@@ -1068,10 +1142,12 @@ def api_manual_track_download(album_id):
 
     album_data = _get_album_cached(album_id)
     if "error" in album_data:
-        return jsonify({
-            "success": False,
-            "message": f"Failed to fetch album: {album_data['error']}",
-        }), 500
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Failed to fetch album: {album_data['error']}",
+            }
+        ), 500
 
     artist_name = album_data.get("artist", {}).get("artistName", "Unknown")
     album_title = album_data.get("title", "Unknown")
@@ -1093,7 +1169,9 @@ def api_manual_track_download(album_id):
     elif DOWNLOAD_DIR:
         target_path = os.path.join(DOWNLOAD_DIR, sanitized_artist, album_folder)
     else:
-        return jsonify({"success": False, "message": "No download path configured"}), 400
+        return jsonify(
+            {"success": False, "message": "No download path configured"}
+        ), 400
 
     if not _validate_target_path(target_path, config):
         return jsonify({"success": False, "message": "Invalid target path"}), 400
@@ -1129,11 +1207,13 @@ def _build_ydl_opts(config, temp_file):
         "quiet": True,
         "no_warnings": True,
         "format": "bestaudio/best",
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "320",
-        }],
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "320",
+            }
+        ],
         "outtmpl": temp_file,
         "noplaylist": True,
     }
@@ -1160,9 +1240,19 @@ def _cleanup_temp_files(temp_file):
 
 
 def _execute_manual_dl_with_progress(
-    *, youtube_url, track_title, track_num, target_path,
-    album_data, album_id, album_title, artist_name, config,
-    album_path, lidarr_album_path, cover_url,
+    *,
+    youtube_url,
+    track_title,
+    track_num,
+    target_path,
+    album_data,
+    album_id,
+    album_title,
+    artist_name,
+    config,
+    album_path,
+    lidarr_album_path,
+    cover_url,
 ):
     """Download a manual track with download_process state tracking.
 
@@ -1189,17 +1279,19 @@ def _execute_manual_dl_with_progress(
         download_process["artist_name"] = artist_name
         download_process["cover_url"] = cover_url
         download_process["current_track_index"] = 0
-        download_process["tracks"] = [{
-            "track_title": track_title,
-            "track_number": int(track_num),
-            "status": "downloading",
-            "youtube_url": youtube_url,
-            "youtube_title": "",
-            "progress_percent": "",
-            "progress_speed": "",
-            "error_message": "",
-            "skip": False,
-        }]
+        download_process["tracks"] = [
+            {
+                "track_title": track_title,
+                "track_number": int(track_num),
+                "status": "downloading",
+                "youtube_url": youtube_url,
+                "youtube_title": "",
+                "progress_percent": "",
+                "progress_speed": "",
+                "error_message": "",
+                "skip": False,
+            }
+        ]
 
     try:
         os.makedirs(target_path, exist_ok=True)
@@ -1229,9 +1321,19 @@ def _execute_manual_dl_with_progress(
 
 
 def _do_manual_dl(
-    *, youtube_url, track_title, track_num, target_path,
-    album_data, album_id, album_title, artist_name, config,
-    album_path, lidarr_album_path, cover_url,
+    *,
+    youtube_url,
+    track_title,
+    track_num,
+    target_path,
+    album_data,
+    album_id,
+    album_title,
+    artist_name,
+    config,
+    album_path,
+    lidarr_album_path,
+    cover_url,
 ):
     """Core manual download logic with progress state updates."""
     import yt_dlp
@@ -1248,20 +1350,19 @@ def _do_manual_dl(
 
     real_final = os.path.realpath(final_file)
     real_target = os.path.realpath(target_path)
-    if not (real_final.startswith(real_target + os.sep)
-            or real_final == real_target):
+    if not (real_final.startswith(real_target + os.sep) or real_final == real_target):
+        logger.error(
+            "Path containment violation: '%s' escapes target '%s'",
+            real_final, real_target,
+        )
         track_state["status"] = "failed"
         track_state["error_message"] = "Invalid track filename"
         return
 
     def progress_hook(d):
         if d["status"] == "downloading":
-            track_state["progress_percent"] = (
-                d.get("_percent_str", "0%").strip()
-            )
-            track_state["progress_speed"] = (
-                d.get("_speed_str", "N/A").strip()
-            )
+            track_state["progress_percent"] = d.get("_percent_str", "0%").strip()
+            track_state["progress_speed"] = d.get("_speed_str", "N/A").strip()
 
     ydl_opts = _build_ydl_opts(config, temp_file)
     ydl_opts["progress_hooks"] = [progress_hook]
@@ -1291,14 +1392,20 @@ def _do_manual_dl(
     track_state["status"] = "tagging"
     try:
         track_info = _resolve_track_info(
-            track_title, track_num, album_data, album_id,
+            track_title,
+            track_num,
+            album_data,
+            album_id,
         )
         tag_mp3(actual_file, track_info, album_data, None)
 
         if config.get("xml_metadata_enabled", True):
             create_xml_metadata(
-                target_path, artist_name, album_title,
-                int(track_num), track_title,
+                target_path,
+                artist_name,
+                album_title,
+                int(track_num),
+                track_title,
                 album_data.get("foreignAlbumId", ""),
                 album_data.get("artist", {}).get("foreignArtistId", ""),
             )
@@ -1314,7 +1421,9 @@ def _do_manual_dl(
     except Exception as e:
         logger.error(
             "Post-download processing failed for '%s': %s",
-            track_title, e, exc_info=True,
+            track_title,
+            e,
+            exc_info=True,
         )
         _cleanup_temp_files(temp_file)
         track_state["status"] = "failed"
@@ -1324,21 +1433,38 @@ def _do_manual_dl(
     track_state["status"] = "done"
 
     _record_manual_download(
-        album_id=album_id, album_title=album_title,
-        artist_name=artist_name, track_title=track_title,
-        track_num=track_num, youtube_url=youtube_url,
+        album_id=album_id,
+        album_title=album_title,
+        artist_name=artist_name,
+        track_title=track_title,
+        track_num=track_num,
+        youtube_url=youtube_url,
         youtube_title=youtube_title,
-        album_path=album_path, lidarr_album_path=lidarr_album_path,
-        cover_url=cover_url, fp_data=fp_data, file_size=file_size,
+        album_path=album_path,
+        lidarr_album_path=lidarr_album_path,
+        cover_url=cover_url,
+        fp_data=fp_data,
+        file_size=file_size,
     )
 
     _refresh_lidarr_artist(album_data, track_title)
 
 
 def _execute_manual_dl(
-    *, youtube_url, track_title, track_num, target_path,
-    album_data, album_id, album_title, artist_name, config,
-    album_path, lidarr_album_path, cover_url, run_acoustid=False,
+    *,
+    youtube_url,
+    track_title,
+    track_num,
+    target_path,
+    album_data,
+    album_id,
+    album_title,
+    artist_name,
+    config,
+    album_path,
+    lidarr_album_path,
+    cover_url,
+    run_acoustid=False,
 ):
     """Download a single track from a user-supplied YouTube URL.
 
@@ -1356,11 +1482,17 @@ def _execute_manual_dl(
 
     real_final = os.path.realpath(final_file)
     real_target = os.path.realpath(target_path)
-    if not (real_final.startswith(real_target + os.sep)
-            or real_final == real_target):
-        return jsonify({
-            "success": False, "message": "Invalid track filename",
-        }), 400
+    if not (real_final.startswith(real_target + os.sep) or real_final == real_target):
+        logger.error(
+            "Path containment violation: '%s' escapes target '%s'",
+            real_final, real_target,
+        )
+        return jsonify(
+            {
+                "success": False,
+                "message": "Invalid track filename",
+            }
+        ), 400
 
     ydl_opts = _build_ydl_opts(config, temp_file)
 
@@ -1375,21 +1507,29 @@ def _execute_manual_dl(
     actual_file = temp_file + ".mp3"
     if not os.path.exists(actual_file):
         _cleanup_temp_files(temp_file)
-        return jsonify({
-            "success": False,
-            "message": "Download failed -- file not created",
-        }), 500
+        return jsonify(
+            {
+                "success": False,
+                "message": "Download failed -- file not created",
+            }
+        ), 500
 
     try:
         track_info = _resolve_track_info(
-            track_title, track_num, album_data, album_id,
+            track_title,
+            track_num,
+            album_data,
+            album_id,
         )
         tag_mp3(actual_file, track_info, album_data, None)
 
         if config.get("xml_metadata_enabled", True):
             create_xml_metadata(
-                target_path, artist_name, album_title,
-                int(track_num), track_title,
+                target_path,
+                artist_name,
+                album_title,
+                int(track_num),
+                track_title,
                 album_data.get("foreignAlbumId", ""),
                 album_data.get("artist", {}).get("foreignArtistId", ""),
             )
@@ -1404,17 +1544,25 @@ def _execute_manual_dl(
     except Exception as e:
         logger.error(
             "Post-download processing failed for '%s': %s",
-            track_title, e, exc_info=True,
+            track_title,
+            e,
+            exc_info=True,
         )
         _cleanup_temp_files(temp_file)
         return jsonify({"success": False, "message": str(e)[:200]}), 500
 
     _record_manual_download(
-        album_id=album_id, album_title=album_title,
-        artist_name=artist_name, track_title=track_title,
-        track_num=track_num, youtube_url=youtube_url,
-        album_path=album_path, lidarr_album_path=lidarr_album_path,
-        cover_url=cover_url, fp_data=fp_data, file_size=file_size,
+        album_id=album_id,
+        album_title=album_title,
+        artist_name=artist_name,
+        track_title=track_title,
+        track_num=track_num,
+        youtube_url=youtube_url,
+        album_path=album_path,
+        lidarr_album_path=lidarr_album_path,
+        cover_url=cover_url,
+        fp_data=fp_data,
+        file_size=file_size,
     )
 
     _refresh_lidarr_artist(album_data, track_title)
@@ -1426,22 +1574,36 @@ def _execute_manual_dl(
     if fp_data:
         response["acoustid_score"] = fp_data.get("acoustid_score", 0.0)
         response["acoustid_recording_id"] = fp_data.get(
-            "acoustid_recording_id", "",
+            "acoustid_recording_id",
+            "",
         )
     return jsonify(response)
 
 
 def _record_manual_download(
-    *, album_id, album_title, artist_name, track_title, track_num,
-    youtube_url, youtube_title="", album_path, lidarr_album_path,
-    cover_url, fp_data, file_size,
+    *,
+    album_id,
+    album_title,
+    artist_name,
+    track_title,
+    track_num,
+    youtube_url,
+    youtube_title="",
+    album_path,
+    lidarr_album_path,
+    cover_url,
+    fp_data,
+    file_size,
 ):
     """Record a manual download in the DB and add a log entry."""
     try:
         models.add_track_download(
-            album_id=album_id, album_title=album_title,
-            artist_name=artist_name, track_title=track_title,
-            track_number=int(track_num), success=True,
+            album_id=album_id,
+            album_title=album_title,
+            artist_name=artist_name,
+            track_title=track_title,
+            track_number=int(track_num),
+            success=True,
             error_message="",
             youtube_url=youtube_url,
             youtube_title=youtube_title or track_title,
@@ -1458,7 +1620,9 @@ def _record_manual_download(
     except Exception as db_err:
         logger.error(
             "Track downloaded but DB record failed for '%s': %s",
-            track_title, db_err, exc_info=True,
+            track_title,
+            db_err,
+            exc_info=True,
         )
     try:
         models.add_log(
@@ -1514,13 +1678,15 @@ def _refresh_lidarr_artist(album_data, track_title):
         )
         return
     result = lidarr_request(
-        "command", method="POST",
+        "command",
+        method="POST",
         data={"name": "RefreshArtist", "artistId": artist_id},
     )
     if isinstance(result, dict) and "error" in result:
         logger.warning(
             "Lidarr RefreshArtist failed after manual download of '%s': %s",
-            track_title, result["error"],
+            track_title,
+            result["error"],
         )
 
 
@@ -1538,7 +1704,11 @@ def _get_ytdlp_pypi_version():
         )
         resp.raise_for_status()
         return resp.json()["info"]["version"]
-    except Exception:
+    except requests.exceptions.RequestException as e:
+        logger.debug("Failed to fetch yt-dlp version from PyPI: %s", e)
+        return None
+    except (KeyError, ValueError) as e:
+        logger.warning("Unexpected PyPI response format for yt-dlp: %s", e)
         return None
 
 
@@ -1576,5 +1746,7 @@ if __name__ == "__main__":
     threading.Thread(target=_startup_ytdlp_update, daemon=True).start()
     flask_host = os.environ.get("FLASK_HOST", "0.0.0.0")  # 0.0.0.0 required for Docker
     flask_port = int(os.environ.get("FLASK_PORT", "5000"))
-    logger.info("Application started successfully on http://%s:%d", flask_host, flask_port)
+    logger.info(
+        "Application started successfully on http://%s:%d", flask_host, flask_port
+    )
     app.run(host=flask_host, port=flask_port, debug=False, use_reloader=False)

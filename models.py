@@ -128,22 +128,10 @@ def get_album_history(page=1, per_page=50):
         ORDER BY latest_timestamp DESC
         LIMIT ? OFFSET ?
     """
-    count_query = """
-        SELECT COUNT(DISTINCT album_id) FROM track_downloads
-    """
-    conn = db.get_db()
-    total = conn.execute(count_query).fetchone()[0]
-    pages = max(1, math.ceil(total / per_page))
-    page = max(1, min(page, pages))
-    offset = (page - 1) * per_page
-    rows = conn.execute(query, (per_page, offset)).fetchall()
-    return {
-        "items": [dict(row) for row in rows],
-        "total": total,
-        "page": page,
-        "pages": pages,
-        "per_page": per_page,
-    }
+    count_query = (
+        "SELECT COUNT(DISTINCT album_id) FROM track_downloads"
+    )
+    return _paginate(query, count_query, (), page, per_page)
 
 
 def get_failed_tracks_for_retry(album_id):
