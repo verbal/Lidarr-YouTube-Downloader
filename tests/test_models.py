@@ -4,6 +4,7 @@ import pytest
 
 import db
 import models
+from models import CandidateOutcome
 
 
 @pytest.fixture(autouse=True)
@@ -520,3 +521,38 @@ def test_mark_track_deleted():
 
 def test_mark_track_deleted_nonexistent():
     assert models.mark_track_deleted(9999) is None
+
+
+# --- CandidateOutcome Enum ---
+
+
+class TestCandidateOutcome:
+
+    def test_enum_values(self):
+        assert CandidateOutcome.VERIFIED == "verified"
+        assert CandidateOutcome.MISMATCH == "mismatch"
+        assert CandidateOutcome.UNVERIFIED == "unverified"
+        assert CandidateOutcome.DOWNLOAD_FAILED == "download_failed"
+        assert CandidateOutcome.ACCEPTED_NO_VERIFY == "accepted_no_verify"
+        assert CandidateOutcome.ACCEPTED_UNVERIFIED_FALLBACK == (
+            "accepted_unverified_fallback"
+        )
+
+    def test_is_str_subclass(self):
+        outcome = CandidateOutcome.VERIFIED
+        assert isinstance(outcome, str)
+
+
+# --- add_track_download returns ID ---
+
+
+def test_add_track_download_returns_id():
+    row_id = models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    assert isinstance(row_id, int)
+    assert row_id > 0

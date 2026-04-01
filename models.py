@@ -8,10 +8,22 @@ import logging
 import math
 import time
 from datetime import datetime
+from enum import Enum
 
 import db
 
 logger = logging.getLogger(__name__)
+
+class CandidateOutcome(str, Enum):
+    """Outcome of a single YouTube candidate attempt."""
+
+    VERIFIED = "verified"
+    MISMATCH = "mismatch"
+    UNVERIFIED = "unverified"
+    DOWNLOAD_FAILED = "download_failed"
+    ACCEPTED_NO_VERIFY = "accepted_no_verify"
+    ACCEPTED_UNVERIFIED_FALLBACK = "accepted_unverified_fallback"
+
 
 QUEUE_STATUS_QUEUED = "queued"
 QUEUE_STATUS_DOWNLOADING = "downloading"
@@ -62,7 +74,7 @@ def add_track_download(
 ):
     """Record a single track download attempt."""
     conn = db.get_db()
-    conn.execute(
+    cursor = conn.execute(
         """INSERT INTO track_downloads
            (album_id, album_title, artist_name, track_title,
             track_number, success, error_message, youtube_url,
@@ -84,6 +96,7 @@ def add_track_download(
         ),
     )
     conn.commit()
+    return cursor.lastrowid
 
 
 def get_track_downloads_for_album(album_id):
