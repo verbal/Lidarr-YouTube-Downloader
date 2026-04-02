@@ -335,17 +335,7 @@
         .logs-container {
             display: flex;
             flex-direction: column;
-            gap: 1rem;
-        }
-
-        .log-card {
-            background: var(--surface-glass);
-            backdrop-filter: blur(20px) saturate(180%);
-            border-radius: var(--radius);
-            padding: 1.5rem;
-            border: 1px solid var(--border-glass);
-            transition: all 0.3s ease;
-            animation: slideIn 0.3s ease;
+            gap: 0.25rem;
         }
 
         @keyframes slideIn {
@@ -360,80 +350,126 @@
             }
         }
 
-        .log-card:hover {
-            transform: translateX(4px);
-            box-shadow: var(--shadow);
+        .log-row {
+            display: flex;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--surface);
+            border-radius: 12px;
+            align-items: center;
+            border-left: 4px solid transparent;
+            transition: all 0.3s ease;
+            animation: slideIn 0.3s ease;
         }
 
-        .log-card.download_started {
-            border-left: 4px solid #3b82f6;
+        .log-row.download_started { border-left-color: #3b82f6; }
+        .log-row.download_success { border-left-color: var(--primary); }
+        .log-row.partial_success { border-left-color: var(--warning); }
+        .log-row.import_partial { border-left-color: var(--warning); }
+        .log-row.import_success { border-left-color: var(--primary); }
+        .log-row.import_failed { border-left-color: var(--danger); }
+        .log-row.album_error { border-left-color: var(--danger); }
+        .log-row.manual_download { border-left-color: #8b5cf6; }
+        .log-row.track_failure { border-left-color: var(--danger); }
+        .log-row.url_banned { border-left-color: #f97316; }
+
+        .candidate-row {
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.4rem 1rem 0.4rem 2.5rem;
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            align-items: center;
+            flex-wrap: wrap;
         }
 
-        .log-card.download_success {
-            border-left: 4px solid var(--primary);
+        .candidate-outcome {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            flex-shrink: 0;
         }
 
-        .log-card.partial_success {
-            border-left: 4px solid var(--warning);
+        .candidate-outcome.mismatch {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
         }
 
-        .log-card.import_partial {
-            border-left: 4px solid var(--warning);
+        .candidate-outcome.unverified {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
         }
 
-        .log-card.import_success {
-            border-left: 4px solid var(--primary);
+        .candidate-outcome.download_failed {
+            background: rgba(161, 161, 170, 0.1);
+            color: var(--text-dim);
         }
 
-        .log-card.import_failed {
-            border-left: 4px solid var(--danger);
+        .candidate-outcome.verified {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--primary);
         }
 
-        .log-card.album_error {
-            border-left: 4px solid var(--danger);
+        .candidate-sep {
+            color: var(--text-dim);
+            opacity: 0.4;
         }
 
-        .log-card.manual_download {
-            border-left: 4px solid #8b5cf6;
-        }
-
-        .log-card.url_banned { border-left-color: #f97316; }
-        .log-type.url_banned {
-            color: #f97316;
-            background: rgba(249,115,22,0.12);
-        }
-        .btn-unban {
-            background: none;
-            border: 1px solid #f97316;
-            color: #f97316;
-            padding: 0.3rem 0.75rem;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            cursor: pointer;
-            font-weight: 500;
-            transition: all 0.15s;
+        .log-row-info {
+            flex: 1;
+            min-width: 0;
             display: flex;
             align-items: center;
-            gap: 0.3rem;
+            gap: 0.5rem;
+            flex-wrap: wrap;
         }
-        .btn-unban:hover { background: rgba(249,115,22,0.12); }
-        .ban-url-link {
-            color: var(--primary);
-            text-decoration: none;
-            font-size: 0.8rem;
-            word-break: break-all;
-        }
-        .ban-url-link:hover { text-decoration: underline; }
 
-        .log-header {
+        .log-row-title {
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .log-row-meta {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            white-space: nowrap;
+        }
+
+        .log-row-actions {
             display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 1rem;
+            gap: 0.5rem;
+            flex-shrink: 0;
         }
 
-        .log-info {
-            flex: 1;
+        .log-entry-group {
+            background: var(--surface);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .log-entry-group .log-row {
+            border-radius: 0;
+        }
+
+        .status-icon {
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        .status-icon.error {
+            color: var(--danger);
         }
 
         .log-type {
@@ -487,87 +523,83 @@
             color: #8b5cf6;
         }
 
-        .log-album {
-            font-size: 1.1rem;
-            font-weight: 700;
-            margin-bottom: 0.25rem;
+        .log-type.url_banned {
+            color: #f97316;
+            background: rgba(249,115,22,0.12);
         }
 
-        .log-artist {
-            color: var(--text-dim);
-            font-size: 0.9rem;
+        .btn-unban {
+            background: none;
+            border: 1px solid #f97316;
+            color: #f97316;
+            padding: 0.3rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
         }
-
-        .log-details {
-            margin-top: 1rem;
-            padding: 0.75rem;
-            background: var(--bg);
-            border-radius: 8px;
-            font-size: 0.85rem;
+        .btn-unban:hover { background: rgba(249,115,22,0.12); }
+        .ban-url-link {
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 0.8rem;
+            word-break: break-all;
         }
+        .ban-url-link:hover { text-decoration: underline; }
 
-        .log-details-title {
+        .log-type {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
             font-weight: 600;
-            color: var(--text-dim);
             margin-bottom: 0.5rem;
         }
 
-        .failed-tracks-list {
-            list-style: none;
-            padding-left: 0;
+        .log-type.download_started {
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
         }
 
-        .failed-tracks-list li {
-            padding: 0.25rem 0;
-            color: var(--text-dim);
+        .log-type.download_success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--primary);
         }
 
-        .failed-tracks-list li::before {
-            content: "• ";
+        .log-type.partial_success {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .log-type.import_partial {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .log-type.import_success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--primary);
+        }
+
+        .log-type.import_failed {
+            background: rgba(239, 68, 68, 0.1);
             color: var(--danger);
-            font-weight: bold;
         }
 
-        .failed-track-reason {
-            font-size: 0.78rem;
-            color: var(--text-dim);
-            opacity: 0.8;
-            margin-top: 0.15rem;
-            padding-left: 0.2rem;
+        .log-type.album_error {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
         }
 
-        .failed-track-reason i {
-            font-size: 0.65rem;
-            margin-right: 0.25rem;
-            opacity: 0.6;
-        }
-
-        .btn-retry-failed {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            padding: 0.3rem 0.7rem;
-            border-radius: 6px;
-            background: rgba(239, 68, 68, 0.12);
-            border: 1px solid rgba(239, 68, 68, 0.35);
-            color: #ef4444;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-decoration: none;
-            cursor: pointer;
-            transition: all 0.2s;
-            margin-right: 0.5rem;
-        }
-
-        .btn-retry-failed:hover {
-            background: rgba(239, 68, 68, 0.25);
-            border-color: #ef4444;
-        }
-
-        .log-timestamp {
-            color: var(--text-dim);
-            font-size: 0.8rem;
-            margin-top: 0.5rem;
+        .log-type.manual_download {
+            background: rgba(139, 92, 246, 0.1);
+            color: #8b5cf6;
         }
 
         .log-file-size {
@@ -581,11 +613,6 @@
             font-weight: 600;
             border-radius: 6px;
             margin-left: 0.5rem;
-        }
-
-        .log-actions {
-            display: flex;
-            gap: 0.5rem;
         }
 
         .btn-icon {
@@ -800,6 +827,7 @@
                     <option value="import_failed">Import Failed</option>
                     <option value="album_error">Album Error</option>
                     <option value="manual_download">Manual Download</option>
+                    <option value="track_failure">Track Failures</option>
                     <option value="url_banned">URL Banned</option>
                 </select>
             </div>
@@ -1094,81 +1122,132 @@
         }
 
 
-        function renderLogCard(log) {
-            if (log.type === 'url_banned') {
-                var safeUrl = sanitizeUrl(log.youtube_url);
-                var urlHtml = safeUrl
-                    ? '<a class="ban-url-link" href="' + escapeHtml(safeUrl) + '" target="_blank" rel="noopener">' + escapeHtml(log.youtube_url) + '</a>'
-                    : escapeHtml(log.youtube_url || '');
-                var trackNum = log.track_number
-                    ? String(log.track_number).padStart(2, '0') + ' - '
-                    : '';
-                return '<div class="log-card url_banned" id="log-' + escapeHtml(String(log.id)) + '">'
-                    + '<div class="log-header">'
-                    + '<div class="log-info">'
-                    + '<div class="log-type url_banned"><i class="fas fa-ban"></i> URL Banned</div>'
-                    + '<div class="log-album">' + escapeHtml(log.track_title || log.album_title || '') + '</div>'
-                    + '<div class="log-artist">by ' + escapeHtml(log.artist_name || '') + '</div>'
-                    + '</div>'
-                    + '<div class="log-actions">'
-                    + '<button class="btn-unban" onclick="unbanUrl(' + log._ban_id + ',\'' + escapeHtml(String(log.id)) + '\')">'
-                    + '<i class="fas fa-unlock"></i> Unban</button>'
-                    + '</div></div>'
-                    + '<div class="log-details">'
-                    + '<div class="log-details-title">Banned URL:</div>'
-                    + urlHtml
-                    + '<div style="margin-top:0.3rem;font-size:0.75rem;">Track: <strong style="color:var(--text)">'
-                    + escapeHtml(trackNum + (log.track_title || '')) + '</strong></div>'
-                    + '</div>'
-                    + '<div class="log-timestamp"><i class="fas fa-clock"></i> '
-                    + formatTimestamp(log.timestamp) + '</div></div>';
+        function renderLogEntry(log) {
+            if (log.type === 'track_failure') {
+                return renderTrackFailureRow(log);
             }
+            if (log.type === 'url_banned') {
+                return renderBannedUrlRow(log);
+            }
+            return renderAlbumLogRow(log);
+        }
+
+        function renderAlbumLogRow(log) {
             const typeInfo = getLogTypeInfo(log.type);
-            const canRetry = log.type === 'album_error' || log.type === 'partial_success';
-            const retryBtnHtml = (canRetry && failedAlbumId && log.album_id === failedAlbumId)
-                ? `<a href="/?retry=1" class="btn-retry-failed" title="Open retry panel for failed tracks">
-                       <i class="fas fa-redo"></i> Retry Failed Tracks
-                   </a>`
+            const sizeHtml = log.total_file_size
+                ? ' <span class="log-file-size"><i class="fas fa-weight-hanging"></i> '
+                  + formatBytes(log.total_file_size) + '</span>'
                 : '';
-            const failedTracksHtml = log.failed_tracks && log.failed_tracks.length > 0
-                ? `<div class="log-details">
-                    <div class="log-details-title">Failed Tracks (${log.failed_tracks.length}):</div>
-                    <ul class="failed-tracks-list">
-                        ${log.failed_tracks.map(track => {
-                            if (typeof track === 'object' && track.title) {
-                                return `<li><strong>${escapeHtml(track.title)}</strong>${track.reason ? `<div class="failed-track-reason"><i class="fas fa-arrow-right"></i> ${escapeHtml(track.reason)}</div>` : ''}</li>`;
-                            }
-                            return `<li>${track}</li>`;
-                        }).join('')}
-                    </ul>
-                </div>`
+            return '<div class="log-row ' + escapeHtml(log.type)
+                + '" id="log-' + escapeHtml(String(log.id)) + '">'
+                + '<div class="status-icon"><i class="fas ' + typeInfo.icon + '"></i></div>'
+                + '<div class="log-row-info">'
+                + '<span class="log-row-title">' + escapeHtml(log.album_title) + '</span>'
+                + '<span class="log-row-meta">by ' + escapeHtml(log.artist_name)
+                + ' &bull; ' + escapeHtml(log.details || '')
+                + sizeHtml
+                + ' &bull; ' + formatTimestamp(log.timestamp) + '</span>'
+                + '</div>'
+                + '<div class="log-row-actions">'
+                + '<button class="btn-icon" onclick="dismissLog(\'' + escapeHtml(String(log.id))
+                + '\')" title="Dismiss"><i class="fas fa-times"></i></button>'
+                + '</div></div>';
+        }
+
+        function renderTrackFailureRow(log) {
+            var html = '<div class="log-entry-group">'
+                + '<div class="log-row track_failure" id="log-' + escapeHtml(String(log.id)) + '">'
+                + '<div class="status-icon error"><i class="fas fa-xmark"></i></div>'
+                + '<div class="log-row-info">'
+                + '<span class="log-row-title">&ldquo;' + escapeHtml(log.track_title || '') + '&rdquo;</span>'
+                + '<span class="log-row-meta">'
+                + escapeHtml(log.album_title) + ' &mdash; ' + escapeHtml(log.artist_name)
+                + ' &bull; Track ' + (log.track_number || '?')
+                + ' &bull; ' + formatTimestamp(log.timestamp) + '</span>'
+                + '</div>'
+                + '<div class="log-row-actions">'
+                + '<button class="btn-icon" onclick="dismissLog(\'' + escapeHtml(String(log.id))
+                + '\')" title="Dismiss"><i class="fas fa-times"></i></button>'
+                + '</div></div>';
+
+            if (log.candidates && log.candidates.length > 0) {
+                log.candidates.forEach(function(c) {
+                    html += renderCandidateRow(c);
+                });
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function renderBannedUrlRow(log) {
+            var safeUrl = sanitizeUrl(log.youtube_url);
+            var urlHtml = safeUrl
+                ? '<a class="ban-url-link" href="' + escapeHtml(safeUrl) + '" target="_blank" rel="noopener">' + escapeHtml(log.youtube_url) + '</a>'
+                : escapeHtml(log.youtube_url || '');
+            return '<div class="log-row url_banned" id="log-' + escapeHtml(String(log.id)) + '">'
+                + '<div class="status-icon"><i class="fas fa-ban"></i></div>'
+                + '<div class="log-row-info">'
+                + '<span class="log-row-title">' + escapeHtml(log.track_title || log.album_title || '') + '</span>'
+                + '<span class="log-row-meta">by ' + escapeHtml(log.artist_name || '')
+                + ' &bull; ' + urlHtml
+                + ' &bull; ' + formatTimestamp(log.timestamp) + '</span>'
+                + '</div>'
+                + '<div class="log-row-actions">'
+                + '<button class="btn-unban" onclick="unbanUrl(' + log._ban_id + ',\'' + escapeHtml(String(log.id)) + '\')">'
+                + '<i class="fas fa-unlock"></i> Unban</button>'
+                + '</div></div>';
+        }
+
+        function renderCandidateRow(c) {
+            var outcomeClass = escapeHtml(c.outcome || '');
+            var outcomeLabel = {
+                mismatch: 'Mismatch',
+                unverified: 'No AcoustID',
+                download_failed: 'DL Failed',
+                verified: 'Verified',
+                accepted_no_verify: 'No Verify',
+                accepted_unverified_fallback: 'Fallback',
+            }[c.outcome] || c.outcome;
+
+            var safeUrl = sanitizeUrl(c.youtube_url);
+            var urlHtml = safeUrl
+                ? '<a href="' + escapeHtml(safeUrl)
+                  + '" target="_blank" rel="noopener" style="color:var(--text-dim);text-decoration:none;">'
+                  + escapeHtml(c.youtube_title || c.youtube_url) + '</a>'
+                : escapeHtml(c.youtube_title || '');
+
+            var detail = '';
+            if (c.outcome === 'mismatch') {
+                detail = 'AcoustID: &ldquo;' + escapeHtml(c.acoustid_matched_title || '?')
+                    + '&rdquo; (' + (c.acoustid_score || 0).toFixed(2) + ')';
+            } else if (c.outcome === 'unverified') {
+                detail = 'AcoustID: no results';
+            } else if (c.outcome === 'download_failed') {
+                detail = escapeHtml(c.error_message || 'Download failed');
+            } else if (c.outcome === 'verified') {
+                detail = 'AcoustID: verified (' + (c.acoustid_score || 0).toFixed(2) + ')';
+            }
+
+            var duration = c.duration_seconds
+                ? Math.floor(c.duration_seconds / 60) + ':'
+                  + String(c.duration_seconds % 60).padStart(2, '0')
                 : '';
 
-            return `
-                <div class="log-card ${log.type}" id="log-${log.id}">
-                    <div class="log-header">
-                        <div class="log-info">
-                            <div class="log-type ${log.type}">
-                                <i class="fas ${typeInfo.icon}"></i>
-                                ${typeInfo.name}
-                            </div>
-                            <div class="log-album">${escapeHtml(log.album_title)}</div>
-                            <div class="log-artist">by ${escapeHtml(log.artist_name)}</div>
-                        </div>
-                        <div class="log-actions">
-                            ${retryBtnHtml}
-                            <button class="btn-icon" onclick="dismissLog('${log.id}')" title="Dismiss">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                    </div>
-                    ${log.details ? `<div class="log-details"><div class="log-details-title">Details:</div>${escapeHtml(log.details)}</div>` : ''}
-                    ${failedTracksHtml}
-                    <div class="log-timestamp">
-                        <i class="fas fa-clock"></i> ${formatTimestamp(log.timestamp)}${log.total_file_size ? `<span class="log-file-size"><i class="fas fa-weight-hanging"></i> ${formatBytes(log.total_file_size)}</span>` : ''}
-                    </div>
-                </div>
-            `;
+            var unbanHtml = '';
+            if (c.is_banned && c.ban_id) {
+                unbanHtml = ' <button class="btn-unban" onclick="event.stopPropagation();unbanUrl('
+                    + c.ban_id + ',null)"><i class="fas fa-unlock"></i> Unban</button>';
+            }
+
+            return '<div class="candidate-row">'
+                + '<span class="candidate-outcome ' + outcomeClass + '">' + outcomeLabel + '</span>'
+                + urlHtml
+                + (c.match_score ? ' <span class="candidate-sep">&bull;</span> score: '
+                    + c.match_score.toFixed(2) : '')
+                + (duration ? ' <span class="candidate-sep">&bull;</span> ' + duration : '')
+                + (detail ? ' <span class="candidate-sep">&bull;</span> ' + detail : '')
+                + unbanHtml
+                + '</div>';
         }
 
 
@@ -1190,9 +1269,9 @@
             }
 
             emptyState.style.display = 'none';
-            // renderLogCard only interpolates escapeHtml()-sanitised
+            // renderLogEntry only interpolates escapeHtml()-sanitised
             // values and hardcoded class literals, so this is safe.
-            container.innerHTML = logs.map(renderLogCard).join('');
+            container.innerHTML = logs.map(renderLogEntry).join('');
             renderPagination(
                 'logsPagination', logsCurrentPage,
                 logsTotalPages, logsTotal,
@@ -1207,11 +1286,13 @@
                     method: 'DELETE',
                 });
                 if (resp.ok) {
-                    var card = document.getElementById('log-' + logElementId);
-                    if (card) {
-                        card.style.animation = 'slideOut 0.3s ease forwards';
-                        setTimeout(function() { fetchLogs(); }, 300);
+                    if (logElementId) {
+                        var card = document.getElementById('log-' + logElementId);
+                        if (card) {
+                            card.style.animation = 'slideOut 0.3s ease forwards';
+                        }
                     }
+                    setTimeout(function() { fetchLogs(); }, 300);
                 } else {
                     alert('Failed to unban URL');
                 }
