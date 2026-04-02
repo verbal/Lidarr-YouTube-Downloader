@@ -61,6 +61,15 @@ Run with `agent-browser` after changes to frontend JavaScript or template logic:
 - [ ] **Logs page**: Clear all logs — all entries removed
 - [ ] **Logs page**: Filter by log type — only matching entries shown
 - [ ] **Logs page**: Pagination controls work
+- [ ] **Logs page**: All log types render as compact single-line rows (not cards)
+- [ ] **Logs page**: "Track Failures" filter shows per-track failure rows with candidate sub-rows
+- [ ] **Logs page**: Track failure row shows track title, album, artist, track number, timestamp
+- [ ] **Logs page**: Each candidate sub-row shows outcome badge, YouTube title, match score, duration
+- [ ] **Logs page**: Mismatch candidates show AcoustID matched title and score
+- [ ] **Logs page**: Unverified candidates show "AcoustID: no results"
+- [ ] **Logs page**: Download failed candidates show error message
+- [ ] **Logs page**: Banned mismatch candidates show inline Unban button
+- [ ] **Logs page**: Clicking Unban on candidate refreshes logs (ban removed)
 - [ ] **Index page**: Click download on a missing album — album queues and download starts
 - [ ] **Index page**: Click stop download — active download stops
 
