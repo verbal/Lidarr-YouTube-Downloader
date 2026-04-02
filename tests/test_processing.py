@@ -1368,3 +1368,31 @@ def test_handle_post_download_creates_track_failure_logs(monkeypatch):
     assert logs["total"] == 2
     titles = {item["track_title"] for item in logs["items"]}
     assert titles == {"Track2", "Track3"}
+
+
+def test_handle_post_download_all_failed_creates_track_logs(monkeypatch):
+    """When all tracks fail, per-track failure logs are still created."""
+    import processing
+
+    monkeypatch.setattr(processing, "download_process", {
+        "tracks": [
+            {"status": "failed"},
+            {"status": "failed"},
+        ],
+        "stop": False,
+        "result_success": True,
+    })
+    monkeypatch.setattr(processing, "send_notifications", lambda *a, **kw: None)
+
+    failed_tracks = [
+        {"title": "T1", "reason": "No match", "track_num": 1, "track_download_id": 20},
+        {"title": "T2", "reason": "DL error", "track_num": 2, "track_download_id": 21},
+    ]
+    result = processing._handle_post_download(
+        failed_tracks, [None, None], 1, "Album", "Artist", 0,
+    )
+    assert result is not None  # returns error dict
+    logs = models.get_logs(log_type="track_failure")
+    assert logs["total"] == 2
+    titles = {item["track_title"] for item in logs["items"]}
+    assert titles == {"T1", "T2"}

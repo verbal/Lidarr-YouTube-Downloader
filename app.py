@@ -646,6 +646,7 @@ def api_get_logs():
 
 def _enrich_track_failure_logs(items):
     """Attach candidate attempts and ban status to track_failure logs."""
+    banned_cache = {}
     for item in items:
         if item.get("type") != "track_failure":
             continue
@@ -655,13 +656,19 @@ def _enrich_track_failure_logs(items):
             continue
         candidates = models.get_candidate_attempts(td_id)
         album_id = item.get("album_id")
-        banned_lookup = {}
-        try:
-            banned = models.get_banned_urls_for_album(album_id)
-            for b in banned:
-                banned_lookup[b["youtube_url"]] = b["id"]
-        except Exception:
-            pass
+        if album_id not in banned_cache:
+            try:
+                banned = models.get_banned_urls_for_album(album_id)
+                banned_cache[album_id] = {
+                    b["youtube_url"]: b["id"] for b in banned
+                }
+            except Exception:
+                logger.warning(
+                    "Failed to fetch banned URLs for album %s",
+                    album_id, exc_info=True,
+                )
+                banned_cache[album_id] = {}
+        banned_lookup = banned_cache[album_id]
         for c in candidates:
             url = c.get("youtube_url", "")
             c["is_banned"] = url in banned_lookup

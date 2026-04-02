@@ -463,6 +463,31 @@ def _download_candidate_threaded(
     return dl_result, actual_file
 
 
+def _build_candidate_attempt(
+    candidate, outcome, expected_recording_id,
+    fp_data=None, error_message="",
+):
+    """Build a candidate attempt dict for buffering."""
+    fp = fp_data or {}
+    return {
+        "youtube_url": candidate.get("url", ""),
+        "youtube_title": candidate.get("title", ""),
+        "match_score": candidate.get("score", 0.0),
+        "duration_seconds": candidate.get("duration", 0),
+        "outcome": outcome,
+        "acoustid_matched_id": fp.get(
+            "acoustid_recording_id", "",
+        ),
+        "acoustid_matched_title": fp.get(
+            "acoustid_recording_title", "",
+        ),
+        "acoustid_score": fp.get("acoustid_score", 0.0),
+        "expected_recording_id": expected_recording_id or "",
+        "error_message": error_message,
+        "timestamp": time.time(),
+    }
+
+
 def _accept_track_file(
     src_file, track_num, sanitized_track, dl_result, fp_data,
     *, track_state, track_title, album_path, album_ctx,
@@ -571,7 +596,7 @@ def _record_track_failure(
         with _results_lock:
             for entry in failed_tracks:
                 if (
-                    entry["title"] == track_title
+                    entry["track_num"] == track_num
                     and entry["track_download_id"] is None
                 ):
                     entry["track_download_id"] = track_download_id
@@ -699,25 +724,16 @@ def _download_tracks(
                 _skip_check, track_state,
             )
             if dl_out is None:
-                candidate_attempts_buf.append({
-                    "youtube_url": candidate.get("url", ""),
-                    "youtube_title": candidate.get("title", ""),
-                    "match_score": candidate.get("score", 0.0),
-                    "duration_seconds": candidate.get(
-                        "duration", 0,
-                    ),
-                    "outcome": CandidateOutcome.DOWNLOAD_FAILED,
-                    "acoustid_matched_id": "",
-                    "acoustid_matched_title": "",
-                    "acoustid_score": 0.0,
-                    "expected_recording_id": (
-                        expected_recording_id or ""
-                    ),
-                    "error_message": track_state.get(
-                        "error_message", "",
-                    ),
-                    "timestamp": time.time(),
-                })
+                candidate_attempts_buf.append(
+                    _build_candidate_attempt(
+                        candidate,
+                        CandidateOutcome.DOWNLOAD_FAILED,
+                        expected_recording_id,
+                        error_message=track_state.get(
+                            "error_message", "",
+                        ),
+                    )
+                )
                 if track_state["status"] == "skipped":
                     return
                 continue
@@ -754,70 +770,29 @@ def _download_tracks(
                     pass
                 elif vresult["status"] == "verified":
                     fp_data = vresult["fp_data"]
-                    candidate_attempts_buf.append({
-                        "youtube_url": candidate.get(
-                            "url", "",
-                        ),
-                        "youtube_title": candidate.get(
-                            "title", "",
-                        ),
-                        "match_score": candidate.get(
-                            "score", 0.0,
-                        ),
-                        "duration_seconds": candidate.get(
-                            "duration", 0,
-                        ),
-                        "outcome": CandidateOutcome.VERIFIED,
-                        "acoustid_matched_id": fp_data.get(
-                            "acoustid_recording_id", "",
-                        ),
-                        "acoustid_matched_title": fp_data.get(
-                            "acoustid_recording_title", "",
-                        ),
-                        "acoustid_score": fp_data.get(
-                            "acoustid_score", 0.0,
-                        ),
-                        "expected_recording_id": (
-                            expected_recording_id or ""
-                        ),
-                        "error_message": "",
-                        "timestamp": time.time(),
-                    })
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            candidate,
+                            CandidateOutcome.VERIFIED,
+                            expected_recording_id,
+                            fp_data=fp_data,
+                        )
+                    )
                 elif vresult["status"] == "mismatch":
                     all_unverified = False
                     mismatch_fp = vresult["fp_data"]
-                    candidate_attempts_buf.append({
-                        "youtube_url": candidate.get(
-                            "url", "",
-                        ),
-                        "youtube_title": candidate.get(
-                            "title", "",
-                        ),
-                        "match_score": candidate.get(
-                            "score", 0.0,
-                        ),
-                        "duration_seconds": candidate.get(
-                            "duration", 0,
-                        ),
-                        "outcome": CandidateOutcome.MISMATCH,
-                        "acoustid_matched_id": vresult.get(
-                            "matched_id", "",
-                        ),
-                        "acoustid_matched_title": (
-                            mismatch_fp.get(
-                                "acoustid_recording_title",
-                                "",
-                            )
-                        ),
-                        "acoustid_score": mismatch_fp.get(
-                            "acoustid_score", 0.0,
-                        ),
-                        "expected_recording_id": (
-                            expected_recording_id or ""
-                        ),
-                        "error_message": "",
-                        "timestamp": time.time(),
-                    })
+                    mismatch_attempt = _build_candidate_attempt(
+                        candidate,
+                        CandidateOutcome.MISMATCH,
+                        expected_recording_id,
+                        fp_data=mismatch_fp,
+                    )
+                    mismatch_attempt["acoustid_matched_id"] = (
+                        vresult.get("matched_id", "")
+                    )
+                    candidate_attempts_buf.append(
+                        mismatch_attempt,
+                    )
                     remaining = len(candidates) - ci - 1
                     next_msg = (
                         f"Trying next candidate"
@@ -858,29 +833,13 @@ def _download_tracks(
                     track_state["youtube_title"] = ""
                     continue
                 elif vresult["status"] == "unverified":
-                    candidate_attempts_buf.append({
-                        "youtube_url": candidate.get(
-                            "url", "",
-                        ),
-                        "youtube_title": candidate.get(
-                            "title", "",
-                        ),
-                        "match_score": candidate.get(
-                            "score", 0.0,
-                        ),
-                        "duration_seconds": candidate.get(
-                            "duration", 0,
-                        ),
-                        "outcome": CandidateOutcome.UNVERIFIED,
-                        "acoustid_matched_id": "",
-                        "acoustid_matched_title": "",
-                        "acoustid_score": 0.0,
-                        "expected_recording_id": (
-                            expected_recording_id or ""
-                        ),
-                        "error_message": "",
-                        "timestamp": time.time(),
-                    })
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            candidate,
+                            CandidateOutcome.UNVERIFIED,
+                            expected_recording_id,
+                        )
+                    )
                     logger.debug(
                         "AcoustID returned no data for '%s'"
                         " candidate '%s'",
@@ -900,31 +859,14 @@ def _download_tracks(
                         )
                         if fp_result:
                             fp_data = fp_result
-                candidate_attempts_buf.append({
-                    "youtube_url": candidate.get("url", ""),
-                    "youtube_title": candidate.get("title", ""),
-                    "match_score": candidate.get("score", 0.0),
-                    "duration_seconds": candidate.get(
-                        "duration", 0,
-                    ),
-                    "outcome": (
-                        CandidateOutcome.ACCEPTED_NO_VERIFY
-                    ),
-                    "acoustid_matched_id": fp_data.get(
-                        "acoustid_recording_id", "",
-                    ),
-                    "acoustid_matched_title": fp_data.get(
-                        "acoustid_recording_title", "",
-                    ),
-                    "acoustid_score": fp_data.get(
-                        "acoustid_score", 0.0,
-                    ),
-                    "expected_recording_id": (
-                        expected_recording_id or ""
-                    ),
-                    "error_message": "",
-                    "timestamp": time.time(),
-                })
+                candidate_attempts_buf.append(
+                    _build_candidate_attempt(
+                        candidate,
+                        CandidateOutcome.ACCEPTED_NO_VERIFY,
+                        expected_recording_id,
+                        fp_data=fp_data,
+                    )
+                )
 
             file_size = _accept_track_file(
                 actual_file, track_num, sanitized_track,
@@ -962,40 +904,14 @@ def _download_tracks(
                     fb_result.get("success")
                     and os.path.exists(fb_file)
                 ):
-                    candidate_attempts_buf.append({
-                        "youtube_url": (
-                            best_unverified_candidate.get(
-                                "url", "",
-                            )
-                        ),
-                        "youtube_title": (
-                            best_unverified_candidate.get(
-                                "title", "",
-                            )
-                        ),
-                        "match_score": (
-                            best_unverified_candidate.get(
-                                "score", 0.0,
-                            )
-                        ),
-                        "duration_seconds": (
-                            best_unverified_candidate.get(
-                                "duration", 0,
-                            )
-                        ),
-                        "outcome": (
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            best_unverified_candidate,
                             CandidateOutcome
-                            .ACCEPTED_UNVERIFIED_FALLBACK
-                        ),
-                        "acoustid_matched_id": "",
-                        "acoustid_matched_title": "",
-                        "acoustid_score": 0.0,
-                        "expected_recording_id": (
-                            expected_recording_id or ""
-                        ),
-                        "error_message": "",
-                        "timestamp": time.time(),
-                    })
+                            .ACCEPTED_UNVERIFIED_FALLBACK,
+                            expected_recording_id,
+                        )
+                    )
                     track_state["status"] = "tagging"
                     track_state["youtube_url"] = fb_result.get(
                         "youtube_url", "",
@@ -1019,41 +935,17 @@ def _download_tracks(
                         total_downloaded_size += file_size
                     return
                 else:
-                    candidate_attempts_buf.append({
-                        "youtube_url": (
-                            best_unverified_candidate.get(
-                                "url", "",
-                            )
-                        ),
-                        "youtube_title": (
-                            best_unverified_candidate.get(
-                                "title", "",
-                            )
-                        ),
-                        "match_score": (
-                            best_unverified_candidate.get(
-                                "score", 0.0,
-                            )
-                        ),
-                        "duration_seconds": (
-                            best_unverified_candidate.get(
-                                "duration", 0,
-                            )
-                        ),
-                        "outcome": (
-                            CandidateOutcome.DOWNLOAD_FAILED
-                        ),
-                        "acoustid_matched_id": "",
-                        "acoustid_matched_title": "",
-                        "acoustid_score": 0.0,
-                        "expected_recording_id": (
-                            expected_recording_id or ""
-                        ),
-                        "error_message": fb_result.get(
-                            "error_message", "file not found",
-                        ),
-                        "timestamp": time.time(),
-                    })
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            best_unverified_candidate,
+                            CandidateOutcome.DOWNLOAD_FAILED,
+                            expected_recording_id,
+                            error_message=fb_result.get(
+                                "error_message",
+                                "file not found",
+                            ),
+                        )
+                    )
                     logger.warning(
                         "Fallback re-download of '%s' failed"
                         " for '%s': %s",
