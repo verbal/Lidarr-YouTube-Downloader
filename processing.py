@@ -15,6 +15,7 @@ import uuid
 
 import models
 from config import load_config
+from models import CandidateOutcome
 from downloader import (
     download_youtube_candidate,
     search_youtube_candidates,
@@ -462,9 +463,35 @@ def _download_candidate_threaded(
     return dl_result, actual_file
 
 
+def _build_candidate_attempt(
+    candidate, outcome, expected_recording_id,
+    fp_data=None, error_message="",
+):
+    """Build a candidate attempt dict for buffering."""
+    fp = fp_data or {}
+    return {
+        "youtube_url": candidate.get("url", ""),
+        "youtube_title": candidate.get("title", ""),
+        "match_score": candidate.get("score", 0.0),
+        "duration_seconds": candidate.get("duration", 0),
+        "outcome": outcome,
+        "acoustid_matched_id": fp.get(
+            "acoustid_recording_id", "",
+        ),
+        "acoustid_matched_title": fp.get(
+            "acoustid_recording_title", "",
+        ),
+        "acoustid_score": fp.get("acoustid_score", 0.0),
+        "expected_recording_id": expected_recording_id or "",
+        "error_message": error_message,
+        "timestamp": time.time(),
+    }
+
+
 def _accept_track_file(
     src_file, track_num, sanitized_track, dl_result, fp_data,
     *, track_state, track_title, album_path, album_ctx,
+    candidate_attempts=None,
 ):
     """Accept a downloaded file: XML metadata, move, record in DB.
 
@@ -492,7 +519,7 @@ def _accept_track_file(
     track_state["status"] = "done"
 
     try:
-        models.add_track_download(
+        track_download_id = models.add_track_download(
             album_id=album_ctx["album_id"],
             album_title=album_ctx["album_title"],
             artist_name=album_ctx["artist_name"],
@@ -524,6 +551,19 @@ def _accept_track_file(
             "Failed to record track download for '%s' (album %d)",
             track_title, album_ctx["album_id"], exc_info=True,
         )
+        return file_size
+
+    if candidate_attempts and track_download_id is not None:
+        try:
+            models.flush_candidate_attempts(
+                track_download_id, candidate_attempts,
+            )
+        except Exception:
+            logger.error(
+                "Failed to flush candidate attempts for '%s'"
+                " (track_download_id %d)",
+                track_title, track_download_id, exc_info=True,
+            )
 
     return file_size
 
@@ -531,18 +571,21 @@ def _accept_track_file(
 def _record_track_failure(
     fail_reason, track_state, track_title, track_num,
     *, album_path, album_ctx, failed_tracks, _results_lock,
+    candidate_attempts=None,
 ):
     """Record a track failure in state, failed_tracks list, and DB."""
     track_state["status"] = "failed"
     track_state["error_message"] = fail_reason
+    track_download_id = None
     with _results_lock:
         failed_tracks.append({
             "title": track_title,
             "reason": fail_reason,
             "track_num": track_num,
+            "track_download_id": track_download_id,
         })
     try:
-        models.add_track_download(
+        track_download_id = models.add_track_download(
             album_id=album_ctx["album_id"],
             album_title=album_ctx["album_title"],
             artist_name=album_ctx["artist_name"],
@@ -560,6 +603,28 @@ def _record_track_failure(
             "Failed to record track download for '%s' (album %d)",
             track_title, album_ctx["album_id"], exc_info=True,
         )
+        return
+
+    if candidate_attempts and track_download_id is not None:
+        try:
+            models.flush_candidate_attempts(
+                track_download_id, candidate_attempts,
+            )
+        except Exception:
+            logger.error(
+                "Failed to flush candidate attempts for '%s'"
+                " (track_download_id %d)",
+                track_title, track_download_id, exc_info=True,
+            )
+
+    with _results_lock:
+        for entry in failed_tracks:
+            if (
+                entry["track_num"] == track_num
+                and entry["track_download_id"] is None
+            ):
+                entry["track_download_id"] = track_download_id
+                break
 
 
 def _download_tracks(
@@ -660,6 +725,7 @@ def _download_tracks(
         best_unverified_candidate = None
         accepted = False
         any_downloaded = False
+        candidate_attempts_buf = []
 
         for ci, candidate in enumerate(candidates):
             if _skip_check():
@@ -677,6 +743,16 @@ def _download_tracks(
                 _skip_check, track_state,
             )
             if dl_out is None:
+                candidate_attempts_buf.append(
+                    _build_candidate_attempt(
+                        candidate,
+                        CandidateOutcome.DOWNLOAD_FAILED,
+                        expected_recording_id,
+                        error_message=track_state.get(
+                            "error_message", "",
+                        ),
+                    )
+                )
                 if track_state["status"] == "skipped":
                     return
                 continue
@@ -713,8 +789,29 @@ def _download_tracks(
                     pass
                 elif vresult["status"] == "verified":
                     fp_data = vresult["fp_data"]
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            candidate,
+                            CandidateOutcome.VERIFIED,
+                            expected_recording_id,
+                            fp_data=fp_data,
+                        )
+                    )
                 elif vresult["status"] == "mismatch":
                     all_unverified = False
+                    mismatch_fp = vresult["fp_data"]
+                    mismatch_attempt = _build_candidate_attempt(
+                        candidate,
+                        CandidateOutcome.MISMATCH,
+                        expected_recording_id,
+                        fp_data=mismatch_fp,
+                    )
+                    mismatch_attempt["acoustid_matched_id"] = (
+                        vresult.get("matched_id", "")
+                    )
+                    candidate_attempts_buf.append(
+                        mismatch_attempt,
+                    )
                     remaining = len(candidates) - ci - 1
                     next_msg = (
                         f"Trying next candidate"
@@ -729,7 +826,7 @@ def _download_tracks(
                         track_title,
                         expected_recording_id,
                         vresult["matched_id"],
-                        vresult["fp_data"].get(
+                        mismatch_fp.get(
                             "acoustid_score", 0,
                         ),
                         next_msg,
@@ -755,6 +852,13 @@ def _download_tracks(
                     track_state["youtube_title"] = ""
                     continue
                 elif vresult["status"] == "unverified":
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            candidate,
+                            CandidateOutcome.UNVERIFIED,
+                            expected_recording_id,
+                        )
+                    )
                     logger.debug(
                         "AcoustID returned no data for '%s'"
                         " candidate '%s'",
@@ -774,6 +878,14 @@ def _download_tracks(
                         )
                         if fp_result:
                             fp_data = fp_result
+                candidate_attempts_buf.append(
+                    _build_candidate_attempt(
+                        candidate,
+                        CandidateOutcome.ACCEPTED_NO_VERIFY,
+                        expected_recording_id,
+                        fp_data=fp_data,
+                    )
+                )
 
             file_size = _accept_track_file(
                 actual_file, track_num, sanitized_track,
@@ -782,6 +894,7 @@ def _download_tracks(
                 track_title=track_title,
                 album_path=album_path,
                 album_ctx=album_ctx,
+                candidate_attempts=candidate_attempts_buf,
             )
             with _results_lock:
                 total_downloaded_size += file_size
@@ -810,6 +923,14 @@ def _download_tracks(
                     fb_result.get("success")
                     and os.path.exists(fb_file)
                 ):
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            best_unverified_candidate,
+                            CandidateOutcome
+                            .ACCEPTED_UNVERIFIED_FALLBACK,
+                            expected_recording_id,
+                        )
+                    )
                     track_state["status"] = "tagging"
                     track_state["youtube_url"] = fb_result.get(
                         "youtube_url", "",
@@ -825,11 +946,25 @@ def _download_tracks(
                         track_title=track_title,
                         album_path=album_path,
                         album_ctx=album_ctx,
+                        candidate_attempts=(
+                            candidate_attempts_buf
+                        ),
                     )
                     with _results_lock:
                         total_downloaded_size += file_size
                     return
                 else:
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            best_unverified_candidate,
+                            CandidateOutcome.DOWNLOAD_FAILED,
+                            expected_recording_id,
+                            error_message=fb_result.get(
+                                "error_message",
+                                "file not found",
+                            ),
+                        )
+                    )
                     logger.warning(
                         "Fallback re-download of '%s' failed"
                         " for '%s': %s",
@@ -859,6 +994,7 @@ def _download_tracks(
                 album_path=album_path, album_ctx=album_ctx,
                 failed_tracks=failed_tracks,
                 _results_lock=_results_lock,
+                candidate_attempts=candidate_attempts_buf,
             )
 
     with ThreadPoolExecutor(max_workers=concurrent_tracks) as executor:
@@ -930,6 +1066,25 @@ def _handle_post_download(
                     " failed to download"
                 ),
             )
+            for ft in failed_tracks:
+                try:
+                    models.add_log(
+                        log_type="track_failure",
+                        album_id=album_id,
+                        album_title=album_title,
+                        artist_name=artist_name,
+                        details=ft["reason"],
+                        track_title=ft["title"],
+                        track_number=ft["track_num"],
+                        track_download_id=ft.get(
+                            "track_download_id",
+                        ),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to log track_failure for '%s'",
+                        ft["title"], exc_info=True,
+                    )
             download_process["result_success"] = False
             return {"error": "All tracks failed to download"}
 
@@ -965,6 +1120,25 @@ def _handle_post_download(
             ),
             total_file_size=total_downloaded_size,
         )
+        for ft in failed_tracks:
+            try:
+                models.add_log(
+                    log_type="track_failure",
+                    album_id=album_id,
+                    album_title=album_title,
+                    artist_name=artist_name,
+                    details=ft["reason"],
+                    track_title=ft["title"],
+                    track_number=ft["track_num"],
+                    track_download_id=ft.get(
+                        "track_download_id",
+                    ),
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to log track_failure for '%s'",
+                    ft["title"], exc_info=True,
+                )
     else:
         models.add_log(
             log_type="download_success",

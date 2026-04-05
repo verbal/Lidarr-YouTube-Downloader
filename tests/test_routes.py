@@ -1251,3 +1251,100 @@ class TestPathContainment:
         music = tmp_path / "music"
         config = {"lidarr_path": str(music)}
         assert _validate_target_path(str(music), config)
+
+
+class TestLogsEnrichment:
+    def test_track_failure_log_includes_candidates(self, client):
+        import models
+        from models import CandidateOutcome
+
+        track_id = models.add_track_download(
+            album_id=1, album_title="A", artist_name="A",
+            track_title="T1", track_number=1, success=False,
+            error_message="AcoustID failed", youtube_url="",
+            youtube_title="", match_score=0.0, duration_seconds=0,
+            album_path="", lidarr_album_path="", cover_url="",
+        )
+        models.flush_candidate_attempts(track_id, [
+            {
+                "youtube_url": "https://youtube.com/watch?v=a",
+                "youtube_title": "Video A",
+                "match_score": 0.87, "duration_seconds": 222,
+                "outcome": CandidateOutcome.MISMATCH,
+                "acoustid_matched_id": "wrong-id",
+                "acoustid_matched_title": "Wrong Song",
+                "acoustid_score": 0.92,
+                "expected_recording_id": "expected-id",
+                "error_message": "", "timestamp": 1000.0,
+            },
+        ])
+        models.add_log(
+            log_type="track_failure", album_id=1,
+            album_title="A", artist_name="A",
+            details="AcoustID failed", track_title="T1",
+            track_number=1, track_download_id=track_id,
+        )
+        resp = client.get("/api/logs?type=track_failure")
+        data = resp.get_json()
+        assert len(data["items"]) == 1
+        item = data["items"][0]
+        assert item["track_title"] == "T1"
+        assert "candidates" in item
+        assert len(item["candidates"]) == 1
+        assert item["candidates"][0]["outcome"] == "mismatch"
+        assert item["candidates"][0]["acoustid_matched_title"] == "Wrong Song"
+
+    def test_track_failure_candidate_includes_ban_status(self, client):
+        import models
+        from models import CandidateOutcome
+
+        track_id = models.add_track_download(
+            album_id=1, album_title="A", artist_name="A",
+            track_title="T1", track_number=1, success=False,
+            error_message="failed", youtube_url="",
+            youtube_title="", match_score=0.0, duration_seconds=0,
+            album_path="", lidarr_album_path="", cover_url="",
+        )
+        models.flush_candidate_attempts(track_id, [
+            {
+                "youtube_url": "https://youtube.com/watch?v=banned",
+                "youtube_title": "Banned Vid",
+                "match_score": 0.8, "duration_seconds": 200,
+                "outcome": CandidateOutcome.MISMATCH,
+                "acoustid_matched_id": "x",
+                "acoustid_matched_title": "X",
+                "acoustid_score": 0.9,
+                "expected_recording_id": "y",
+                "error_message": "", "timestamp": 1000.0,
+            },
+        ])
+        models.add_banned_url(
+            youtube_url="https://youtube.com/watch?v=banned",
+            youtube_title="Banned Vid", album_id=1,
+            album_title="A", artist_name="A",
+            track_title="T1", track_number=1,
+        )
+        models.add_log(
+            log_type="track_failure", album_id=1,
+            album_title="A", artist_name="A",
+            details="failed", track_title="T1",
+            track_number=1, track_download_id=track_id,
+        )
+        resp = client.get("/api/logs?type=track_failure")
+        data = resp.get_json()
+        cand = data["items"][0]["candidates"][0]
+        assert cand["is_banned"] is True
+        assert isinstance(cand["ban_id"], int)
+
+    def test_non_track_failure_logs_have_no_candidates(self, client):
+        import models
+
+        models.add_log(
+            log_type="download_success", album_id=1,
+            album_title="A", artist_name="A",
+            details="ok",
+        )
+        resp = client.get("/api/logs")
+        data = resp.get_json()
+        for item in data["items"]:
+            assert "candidates" not in item

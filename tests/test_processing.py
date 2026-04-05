@@ -7,6 +7,7 @@ import pytest
 
 import db
 import models
+from models import CandidateOutcome
 
 
 @pytest.fixture(autouse=True)
@@ -981,3 +982,417 @@ class TestVerifyRetryIntegration:
         assert "url_a" in banned
 
         self._teardown_download_process()
+
+
+class TestCandidateAttemptCapture:
+    """Verify candidate_attempts are flushed to DB during downloads."""
+
+    def _setup_download_process(self, tracks_list):
+        from processing import download_process
+        download_process["stop"] = False
+        download_process["album_id"] = 42
+        download_process["tracks"] = [
+            {
+                "track_title": t["title"],
+                "track_number": int(t.get("trackNumber", 1)),
+                "status": "pending",
+                "youtube_url": "",
+                "youtube_title": "",
+                "progress_percent": "",
+                "progress_speed": "",
+                "error_message": "",
+                "skip": False,
+            }
+            for t in tracks_list
+        ]
+        download_process["current_track_index"] = -1
+
+    def _teardown_download_process(self):
+        from processing import download_process
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
+        download_process["album_id"] = None
+
+    def _fake_download(self, candidate, output_path, **kwargs):
+        open(output_path + ".mp3", "w").close()
+        return {
+            "success": True,
+            "youtube_url": candidate["url"],
+            "youtube_title": candidate["title"],
+            "match_score": candidate["score"],
+            "duration_seconds": candidate["duration"],
+        }
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": False,
+    })
+    def test_accepted_no_verify_captures_attempt(
+        self, mock_config, mock_tag, mock_dl_candidate,
+        mock_search, tmp_path,
+    ):
+        """AcoustID disabled -> ACCEPTED_NO_VERIFY attempt recorded."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+
+        track = {
+            "title": "Track", "trackNumber": 1,
+            "duration": 200000,
+        }
+        self._setup_download_process([track])
+        mock_search.return_value = [
+            {"url": "url_1", "title": "Track", "duration": 200,
+             "score": 0.9, "channel": "Ch"},
+        ]
+        mock_dl_candidate.side_effect = self._fake_download
+
+        _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        rows = models.get_track_downloads_for_album(42)
+        assert len(rows) == 1
+        td_id = rows[0]["id"]
+        attempts = models.get_candidate_attempts(td_id)
+        assert len(attempts) == 1
+        assert attempts[0]["outcome"] == CandidateOutcome.ACCEPTED_NO_VERIFY
+        assert attempts[0]["youtube_url"] == "url_1"
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_mismatch_then_verified_captures_both(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """Mismatch + verified -> 2 attempts with correct outcomes."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+
+        track = {
+            "title": "Song", "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process([track])
+        mock_search.return_value = [
+            {"url": "url_a", "title": "Wrong", "duration": 200,
+             "score": 0.9, "channel": "Ch"},
+            {"url": "url_b", "title": "Right", "duration": 200,
+             "score": 0.8, "channel": "Ch"},
+        ]
+        mock_dl_candidate.side_effect = self._fake_download
+        mock_verify.side_effect = [
+            {
+                "status": "mismatch",
+                "fp_data": {
+                    "acoustid_recording_id": "wrong-rec",
+                    "acoustid_recording_title": "Other",
+                    "acoustid_score": 0.88,
+                },
+                "matched_id": "wrong-rec",
+            },
+            {
+                "status": "verified",
+                "fp_data": {
+                    "acoustid_fingerprint_id": "fp",
+                    "acoustid_score": 0.92,
+                    "acoustid_recording_id": "expected-rec",
+                    "acoustid_recording_title": "Song",
+                },
+                "matched_id": "expected-rec",
+            },
+        ]
+
+        _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        rows = models.get_track_downloads_for_album(42)
+        td_id = rows[0]["id"]
+        attempts = models.get_candidate_attempts(td_id)
+        assert len(attempts) == 2
+        assert attempts[0]["outcome"] == CandidateOutcome.MISMATCH
+        assert attempts[0]["youtube_url"] == "url_a"
+        assert attempts[0]["acoustid_matched_id"] == "wrong-rec"
+        assert attempts[0]["acoustid_score"] == pytest.approx(0.88)
+        assert attempts[1]["outcome"] == CandidateOutcome.VERIFIED
+        assert attempts[1]["youtube_url"] == "url_b"
+        assert attempts[1]["expected_recording_id"] == "expected-rec"
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_all_mismatch_captures_attempts_on_failure(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """All mismatches -> track fails, attempts still flushed."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+
+        track = {
+            "title": "Song", "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process([track])
+        mock_search.return_value = [
+            {"url": f"url_{i}", "title": f"Wrong {i}",
+             "duration": 200, "score": 0.9 - i * 0.1, "channel": "Ch"}
+            for i in range(3)
+        ]
+        mock_dl_candidate.side_effect = self._fake_download
+        mock_verify.return_value = {
+            "status": "mismatch",
+            "fp_data": {},
+            "matched_id": "other-rec",
+        }
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 1
+        rows = models.get_track_downloads_for_album(42)
+        td_id = rows[0]["id"]
+        attempts = models.get_candidate_attempts(td_id)
+        assert len(attempts) == 3
+        assert all(
+            a["outcome"] == CandidateOutcome.MISMATCH
+            for a in attempts
+        )
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": False,
+    })
+    def test_download_failure_captures_attempt(
+        self, mock_config, mock_dl_candidate,
+        mock_search, tmp_path,
+    ):
+        """Download failure -> DOWNLOAD_FAILED attempt recorded."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+
+        track = {
+            "title": "Track", "trackNumber": 1,
+            "duration": 200000,
+        }
+        self._setup_download_process([track])
+        mock_search.return_value = [
+            {"url": "url_1", "title": "Track", "duration": 200,
+             "score": 0.9, "channel": "Ch"},
+        ]
+        mock_dl_candidate.return_value = {
+            "success": False,
+            "error_message": "403 Forbidden",
+        }
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 1
+        rows = models.get_track_downloads_for_album(42)
+        td_id = rows[0]["id"]
+        attempts = models.get_candidate_attempts(td_id)
+        assert len(attempts) == 1
+        assert attempts[0]["outcome"] == CandidateOutcome.DOWNLOAD_FAILED
+        assert attempts[0]["youtube_url"] == "url_1"
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_unverified_fallback_captures_all_attempts(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """All unverified -> fallback accepted with all attempts."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+
+        track = {
+            "title": "Song", "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process([track])
+        mock_search.return_value = [
+            {"url": "url_best", "title": "Best", "duration": 200,
+             "score": 0.95, "channel": "Ch"},
+            {"url": "url_other", "title": "Other", "duration": 200,
+             "score": 0.8, "channel": "Ch"},
+        ]
+        mock_dl_candidate.side_effect = self._fake_download
+        mock_verify.return_value = {
+            "status": "unverified",
+            "fp_data": {},
+            "matched_id": None,
+        }
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 0
+        rows = models.get_track_downloads_for_album(42)
+        td_id = rows[0]["id"]
+        attempts = models.get_candidate_attempts(td_id)
+        # 2 unverified + 1 fallback re-download accepted
+        assert len(attempts) == 3
+        outcomes = [a["outcome"] for a in attempts]
+        assert outcomes.count(CandidateOutcome.UNVERIFIED) == 2
+        assert outcomes.count(
+            CandidateOutcome.ACCEPTED_UNVERIFIED_FALLBACK,
+        ) == 1
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_failed_track_includes_track_download_id(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """failed_tracks entries include track_download_id."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+
+        track = {
+            "title": "Song", "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process([track])
+        mock_search.return_value = [
+            {"url": "url_1", "title": "Wrong", "duration": 200,
+             "score": 0.9, "channel": "Ch"},
+        ]
+        mock_dl_candidate.side_effect = self._fake_download
+        mock_verify.return_value = {
+            "status": "mismatch",
+            "fp_data": {},
+            "matched_id": "other-rec",
+        }
+
+        failed, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 1
+        assert failed[0]["track_download_id"] is not None
+        assert isinstance(failed[0]["track_download_id"], int)
+
+        self._teardown_download_process()
+
+
+def test_handle_post_download_creates_track_failure_logs(monkeypatch):
+    """After a partial download, each failed track gets its own log entry."""
+    import processing
+
+    monkeypatch.setattr(processing, "download_process", {
+        "tracks": [
+            {"status": "done"},
+            {"status": "failed"},
+            {"status": "failed"},
+        ],
+        "stop": False,
+    })
+    monkeypatch.setattr(processing, "send_notifications", lambda *a, **kw: None)
+
+    failed_tracks = [
+        {"title": "Track2", "reason": "AcoustID failed", "track_num": 2, "track_download_id": 10},
+        {"title": "Track3", "reason": "Download failed", "track_num": 3, "track_download_id": 11},
+    ]
+    processing._handle_post_download(
+        failed_tracks, [None, None, None], 1, "Album", "Artist", 5000000,
+    )
+    logs = models.get_logs(log_type="track_failure")
+    assert logs["total"] == 2
+    titles = {item["track_title"] for item in logs["items"]}
+    assert titles == {"Track2", "Track3"}
+
+
+def test_handle_post_download_all_failed_creates_track_logs(monkeypatch):
+    """When all tracks fail, per-track failure logs are still created."""
+    import processing
+
+    monkeypatch.setattr(processing, "download_process", {
+        "tracks": [
+            {"status": "failed"},
+            {"status": "failed"},
+        ],
+        "stop": False,
+        "result_success": True,
+    })
+    monkeypatch.setattr(processing, "send_notifications", lambda *a, **kw: None)
+
+    failed_tracks = [
+        {"title": "T1", "reason": "No match", "track_num": 1, "track_download_id": 20},
+        {"title": "T2", "reason": "DL error", "track_num": 2, "track_download_id": 21},
+    ]
+    result = processing._handle_post_download(
+        failed_tracks, [None, None], 1, "Album", "Artist", 0,
+    )
+    assert result is not None  # returns error dict
+    logs = models.get_logs(log_type="track_failure")
+    assert logs["total"] == 2
+    titles = {item["track_title"] for item in logs["items"]}
+    assert titles == {"T1", "T2"}

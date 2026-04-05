@@ -639,7 +639,52 @@ def api_get_logs():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 50, type=int)
     log_type = request.args.get("type", None, type=str)
-    return jsonify(models.get_logs(page, per_page, log_type=log_type))
+    result = models.get_logs(page, per_page, log_type=log_type)
+    _enrich_track_failure_logs(result["items"])
+    return jsonify(result)
+
+
+def _enrich_track_failure_logs(items):
+    """Attach candidate attempts and ban status to track_failure logs."""
+    banned_cache = {}
+    for item in items:
+        if item.get("type") != "track_failure":
+            continue
+        td_id = item.get("track_download_id")
+        if not td_id:
+            item["candidates"] = []
+            continue
+        try:
+            candidates = models.get_candidate_attempts(td_id)
+        except Exception:
+            logger.warning(
+                "Failed to fetch candidates for track_download %s",
+                td_id, exc_info=True,
+            )
+            item["candidates"] = []
+            continue
+        album_id = item.get("album_id")
+        if album_id is None:
+            banned_lookup = {}
+        elif album_id not in banned_cache:
+            try:
+                banned = models.get_banned_urls_for_album(album_id)
+                banned_cache[album_id] = {
+                    b["youtube_url"]: b["id"] for b in banned
+                }
+            except Exception:
+                logger.warning(
+                    "Failed to fetch banned URLs for album %s",
+                    album_id, exc_info=True,
+                )
+                banned_cache[album_id] = {}
+        if album_id is not None:
+            banned_lookup = banned_cache[album_id]
+        for c in candidates:
+            url = c.get("youtube_url", "")
+            c["is_banned"] = url in banned_lookup
+            c["ban_id"] = banned_lookup.get(url)
+        item["candidates"] = candidates
 
 
 @app.route("/api/logs/size", methods=["GET"])
