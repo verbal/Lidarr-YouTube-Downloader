@@ -75,7 +75,7 @@ def _lookup_acoustid(api_key, duration, fingerprint):
         "client": api_key,
         "duration": int(duration),
         "fingerprint": fingerprint,
-        "meta": "recordings",
+        "meta": "recordings recordingmeta",
     }
     try:
         _throttle()

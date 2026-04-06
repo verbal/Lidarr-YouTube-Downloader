@@ -1323,16 +1323,26 @@
                 : escapeHtml(c.youtube_title || '');
 
             var detail = '';
+            var mbLink = function(title, id, score) {
+                var label = escapeHtml(title || id || '?');
+                if (id) {
+                    label = '<a href="https://musicbrainz.org/recording/'
+                        + encodeURIComponent(id)
+                        + '" target="_blank" rel="noopener"'
+                        + ' style="color:inherit;text-decoration:underline dotted;">'
+                        + label + '</a>';
+                }
+                return 'matched: &ldquo;' + label
+                    + '&rdquo; (' + (score || 0).toFixed(2) + ')';
+            };
             if (c.outcome === 'mismatch') {
-                detail = 'matched: &ldquo;' + escapeHtml(c.acoustid_matched_title || '?')
-                    + '&rdquo; (' + (c.acoustid_score || 0).toFixed(2) + ')';
+                detail = mbLink(c.acoustid_matched_title, c.acoustid_matched_id, c.acoustid_score);
             } else if (c.outcome === 'unverified') {
                 detail = 'AcoustID: no data';
             } else if (c.outcome === 'download_failed') {
                 detail = escapeHtml(c.error_message || 'Download failed');
             } else if (c.outcome === 'verified') {
-                detail = 'matched: &ldquo;' + escapeHtml(c.acoustid_matched_title || c.acoustid_matched_id || '?')
-                    + '&rdquo; (' + (c.acoustid_score || 0).toFixed(2) + ')';
+                detail = mbLink(c.acoustid_matched_title, c.acoustid_matched_id, c.acoustid_score);
             } else if (c.outcome === 'accepted_no_verify') {
                 detail = c.acoustid_score
                     ? 'AcoustID: ' + (c.acoustid_score || 0).toFixed(2)
