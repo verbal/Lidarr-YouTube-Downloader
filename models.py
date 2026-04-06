@@ -23,6 +23,7 @@ class CandidateOutcome(str, Enum):
     DOWNLOAD_FAILED = "download_failed"
     ACCEPTED_NO_VERIFY = "accepted_no_verify"
     ACCEPTED_UNVERIFIED_FALLBACK = "accepted_unverified_fallback"
+    REJECTED_LOW_SCORE = "rejected_low_score"
 
 
 QUEUE_STATUS_QUEUED = "queued"

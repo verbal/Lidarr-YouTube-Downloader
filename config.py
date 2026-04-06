@@ -24,7 +24,34 @@ ALLOWED_CONFIG_KEYS = {
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
     "acoustid_enabled", "acoustid_api_key",
+    "min_match_score",
 }
+
+MIN_MATCH_SCORE_DEFAULT = 0.8
+
+
+def _parse_min_match_score(value):
+    """Parse min_match_score from any input, falling back to default with a warning.
+
+    Accepts strings, numbers, or anything float-coercible. Logs a warning if
+    the value is invalid or out of the [0.0, 1.0] range.
+    """
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid min_match_score=%r; using default %.2f",
+            value, MIN_MATCH_SCORE_DEFAULT,
+        )
+        return MIN_MATCH_SCORE_DEFAULT
+    if not 0.0 <= parsed <= 1.0:
+        logger.warning(
+            "min_match_score=%.2f out of range [0.0, 1.0];"
+            " using default %.2f",
+            parsed, MIN_MATCH_SCORE_DEFAULT,
+        )
+        return MIN_MATCH_SCORE_DEFAULT
+    return parsed
 
 
 def load_config():
@@ -86,6 +113,9 @@ def load_config():
             os.getenv("ACOUSTID_ENABLED", "true").lower() == "true"
         ),
         "acoustid_api_key": os.getenv("ACOUSTID_API_KEY", ""),
+        "min_match_score": _parse_min_match_score(
+            os.getenv("MIN_MATCH_SCORE", "0.8"),
+        ),
         "path_conflict": False,
     }
 
@@ -103,6 +133,10 @@ def load_config():
             if "duration_tolerance" in config:
                 config["duration_tolerance"] = int(
                     config["duration_tolerance"]
+                )
+            if "min_match_score" in config:
+                config["min_match_score"] = _parse_min_match_score(
+                    config["min_match_score"]
                 )
         except (json.JSONDecodeError, OSError, ValueError) as e:
             logger.warning("Failed to load config file %s: %s", CONFIG_FILE, e)

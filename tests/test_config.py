@@ -162,6 +162,45 @@ def test_allowed_config_keys():
     assert "lidarr_api_key" not in config.ALLOWED_CONFIG_KEYS
 
 
+def test_min_match_score_default(temp_config):
+    """min_match_score defaults to 0.8."""
+    cfg = config.load_config()
+    assert cfg["min_match_score"] == 0.8
+
+
+def test_min_match_score_from_env(temp_config, monkeypatch):
+    """MIN_MATCH_SCORE env var overrides default."""
+    monkeypatch.setenv("MIN_MATCH_SCORE", "0.65")
+    cfg = config.load_config()
+    assert cfg["min_match_score"] == 0.65
+
+
+def test_min_match_score_invalid_env_falls_back(
+    temp_config, monkeypatch, caplog,
+):
+    """Malformed MIN_MATCH_SCORE env var falls back to default with warning."""
+    monkeypatch.setenv("MIN_MATCH_SCORE", "not-a-number")
+    with caplog.at_level("WARNING"):
+        cfg = config.load_config()
+    assert cfg["min_match_score"] == 0.8
+    assert any("min_match_score" in r.message for r in caplog.records)
+
+
+def test_min_match_score_out_of_range_falls_back(temp_config, monkeypatch):
+    """Out-of-range MIN_MATCH_SCORE clamps to default."""
+    monkeypatch.setenv("MIN_MATCH_SCORE", "1.5")
+    cfg = config.load_config()
+    assert cfg["min_match_score"] == 0.8
+
+
+def test_min_match_score_invalid_in_file_falls_back(temp_config):
+    """Malformed min_match_score in config.json falls back to default."""
+    with open(temp_config, "w") as f:
+        json.dump({"min_match_score": "garbage"}, f)
+    cfg = config.load_config()
+    assert cfg["min_match_score"] == 0.8
+
+
 def test_save_config_creates_directory(tmp_path, monkeypatch):
     """save_config creates parent directories if they don't exist."""
     nested = str(tmp_path / "nested" / "dir" / "config.json")

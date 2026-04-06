@@ -725,16 +725,67 @@ def _download_tracks(
             )
             return
 
-        all_unverified = True
+        cfg_loop = load_config()
+        # load_config() already validates and clamps min_match_score; this
+        # just guards against tests/callers that bypass it.
+        try:
+            min_match_score = float(cfg_loop.get("min_match_score", 0.8))
+        except (TypeError, ValueError):
+            min_match_score = 0.8
+        will_verify = bool(
+            cfg_loop.get("acoustid_enabled", True)
+            and cfg_loop.get("acoustid_api_key", "")
+            and expected_recording_id
+        )
+        # Reason verification is unavailable, used in rejection messages so
+        # users can tell why the score gate is being enforced.
+        if not will_verify:
+            if not cfg_loop.get("acoustid_enabled", True):
+                no_verify_reason = "AcoustID disabled"
+            elif not cfg_loop.get("acoustid_api_key", ""):
+                no_verify_reason = "AcoustID API key not set"
+            elif not expected_recording_id:
+                no_verify_reason = "no MusicBrainz recording id"
+            else:
+                no_verify_reason = "verification unavailable"
+        else:
+            no_verify_reason = ""
+
         best_unverified_candidate = None
         accepted = False
         any_downloaded = False
+        any_low_score_skipped = False
         candidate_attempts_buf = []
 
         for ci, candidate in enumerate(candidates):
             if _skip_check():
                 track_state["status"] = "skipped"
                 return
+
+            if (
+                not will_verify
+                and candidate.get("score", 0.0) < min_match_score
+            ):
+                candidate_attempts_buf.append(
+                    _build_candidate_attempt(
+                        candidate,
+                        CandidateOutcome.REJECTED_LOW_SCORE,
+                        expected_recording_id,
+                        error_message=(
+                            f"score {candidate.get('score', 0.0):.2f}"
+                            f" < min_match_score {min_match_score:.2f}"
+                            f" ({no_verify_reason})"
+                        ),
+                    )
+                )
+                logger.info(
+                    "Rejected '%s' for '%s': score %.2f < min %.2f (%s)",
+                    candidate.get("title", ""), track_title,
+                    candidate.get("score", 0.0), min_match_score,
+                    no_verify_reason,
+                )
+                any_low_score_skipped = True
+                continue
 
             track_state["status"] = "downloading"
             attempt_temp = os.path.join(
@@ -802,7 +853,6 @@ def _download_tracks(
                         )
                     )
                 elif vresult["status"] == "mismatch":
-                    all_unverified = False
                     mismatch_fp = vresult["fp_data"]
                     mismatch_attempt = _build_candidate_attempt(
                         candidate,
@@ -910,8 +960,40 @@ def _download_tracks(
             accepted = True
             break
 
+        low_score_fallback = False
+        # Note: best_unverified_candidate is only ever assigned in the
+        # AcoustID "unverified" branch (where no fingerprint match exists).
+        # Mismatched candidates are banned via add_banned_url and never
+        # become the fallback, so removing the old all_unverified gate is
+        # safe — a known-bad URL cannot reach this path.
         if not accepted:
-            if all_unverified and best_unverified_candidate:
+            if (
+                best_unverified_candidate is not None
+                and best_unverified_candidate.get("score", 0.0)
+                < min_match_score
+            ):
+                candidate_attempts_buf.append(
+                    _build_candidate_attempt(
+                        best_unverified_candidate,
+                        CandidateOutcome.REJECTED_LOW_SCORE,
+                        expected_recording_id,
+                        error_message=(
+                            f"fallback score"
+                            f" {best_unverified_candidate.get('score', 0.0):.2f}"
+                            f" < min_match_score {min_match_score:.2f}"
+                        ),
+                    )
+                )
+                logger.info(
+                    "Skipping unverified fallback for '%s':"
+                    " best score %.2f < min %.2f",
+                    track_title,
+                    best_unverified_candidate.get("score", 0.0),
+                    min_match_score,
+                )
+                low_score_fallback = True
+                best_unverified_candidate = None
+            if best_unverified_candidate:
                 track_state["status"] = "downloading"
                 fallback_temp = os.path.join(
                     album_path,
@@ -990,7 +1072,19 @@ def _download_tracks(
                     )
                     _cleanup_temp_files(fallback_temp)
 
-            if not any_downloaded:
+            if low_score_fallback:
+                fail_reason = (
+                    f"Unverified fallback below"
+                    f" min_match_score={min_match_score:.2f}"
+                    f" (tried {len(candidates)} candidates)"
+                )
+            elif any_low_score_skipped and not any_downloaded:
+                fail_reason = (
+                    f"No candidate met min_match_score={min_match_score:.2f}"
+                    f" ({no_verify_reason};"
+                    f" tried {len(candidates)} candidates)"
+                )
+            elif not any_downloaded:
                 fail_reason = (
                     "All candidate downloads failed"
                     f" (tried {len(candidates)} candidates)"

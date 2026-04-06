@@ -832,11 +832,16 @@ class TestVerifyRetryLoop:
         "acoustid_enabled": True,
         "acoustid_api_key": "test-key",
     })
-    def test_mix_mismatch_and_unverified_fails(
+    def test_mix_mismatch_and_unverified_falls_back(
         self, mock_config, mock_verify, mock_tag,
         mock_dl_candidate, mock_search, tmp_path,
     ):
-        """Mix of mismatch + unverified -> fails (not all_unverified)."""
+        """Mix of mismatch + unverified -> still falls back to unverified.
+
+        Regression: previously a single mismatch flipped all_unverified to
+        False and prevented the unverified fallback. Now a mismatch only
+        bans that specific URL; unverified candidates remain eligible.
+        """
         from processing import _download_tracks
 
         album_path = str(tmp_path / "album")
@@ -875,12 +880,287 @@ class TestVerifyRetryLoop:
              "matched_id": None},
         ]
 
-        failed, _, _ = _download_tracks(
+        failed, succeeded, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 0
+        assert len(succeeded) == 1
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": False,
+        "min_match_score": 0.8,
+    })
+    def test_no_verify_rejects_low_score_then_accepts(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """No verification + low-score candidate -> skip, try next."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {"title": "Song", "trackNumber": 1, "duration": 200000}
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_low", "title": "Low",
+             "duration": 200, "score": 0.5, "channel": "Ch"},
+            {"url": "url_high", "title": "High",
+             "duration": 200, "score": 0.9, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        failed, succeeded, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 0
+        assert len(succeeded) == 1
+        tracks = models.get_track_downloads_for_album(42)
+        assert tracks[0]["youtube_url"] == "url_high"
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": False,
+        "min_match_score": 0.8,
+    })
+    def test_no_verify_all_below_threshold_fails(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """All candidates below min_match_score -> track fails."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {"title": "Song", "trackNumber": 1, "duration": 200000}
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_a", "title": "A",
+             "duration": 200, "score": 0.5, "channel": "Ch"},
+            {"url": "url_b", "title": "B",
+             "duration": 200, "score": 0.6, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        failed, succeeded, _ = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
 
         assert len(failed) == 1
+        assert len(succeeded) == 0
+        assert "min_match_score" in failed[0]["reason"]
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+        "min_match_score": 0.8,
+    })
+    def test_unverified_fallback_skipped_when_below_threshold(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """Unverified fallback is gated by min_match_score."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "Song", "trackNumber": 1, "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_low", "title": "Low",
+             "duration": 200, "score": 0.5, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        mock_verify.return_value = {
+            "status": "unverified", "fp_data": {}, "matched_id": None,
+        }
+
+        failed, succeeded, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 1
+        assert len(succeeded) == 0
+        assert "min_match_score" in failed[0]["reason"]
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": False,
+        "min_match_score": 0.8,
+    })
+    def test_score_at_threshold_is_accepted(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """A candidate exactly at min_match_score is accepted (>=, not >)."""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {"title": "Song", "trackNumber": 1, "duration": 200000}
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_eq", "title": "Eq",
+             "duration": 200, "score": 0.8, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        failed, succeeded, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 0
+        assert len(succeeded) == 1
+
+        self._teardown_download_process()
+
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_mp3")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+        "min_match_score": 0.8,
+    })
+    def test_verify_enabled_bypasses_score_gate(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, tmp_path,
+    ):
+        """When AcoustID will verify, low-score candidates are still tried.
+
+        AcoustID is the source of truth — a 0.3-scored candidate that
+        fingerprint-matches the expected recording must still be accepted.
+        """
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "Song", "trackNumber": 1, "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process(track)
+
+        mock_search.return_value = [
+            {"url": "url_lowscore", "title": "Low",
+             "duration": 200, "score": 0.3, "channel": "Ch"},
+        ]
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        mock_verify.return_value = {
+            "status": "verified",
+            "fp_data": {
+                "acoustid_recording_id": "expected-rec",
+                "acoustid_score": 0.95,
+            },
+        }
+
+        failed, succeeded, _ = _download_tracks(
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
+        )
+
+        assert len(failed) == 0
+        assert len(succeeded) == 1
+        tracks = models.get_track_downloads_for_album(42)
+        assert tracks[0]["youtube_url"] == "url_lowscore"
 
         self._teardown_download_process()
 

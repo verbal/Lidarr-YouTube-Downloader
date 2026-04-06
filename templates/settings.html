@@ -748,6 +748,14 @@
                 </label>
                 <input type="number" id="durationTolerance" value="10" min="1" max="60">
             </div>
+            <div class="input-group">
+                <label>
+                    Minimum Match Score
+                    <div class="label-description">Minimum YouTube match score (0.0–1.0) required to accept a
+                        track when AcoustID verification is unavailable. Recommended: 0.8.</div>
+                </label>
+                <input type="number" id="minMatchScore" value="0.8" step="0.05" min="0" max="1">
+            </div>
         </div>
 
         <div class="settings-section">
@@ -1023,6 +1031,7 @@
 
 
             document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
+            document.getElementById('minMatchScore').value = conf.min_match_score != null ? conf.min_match_score : 0.8;
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
 
             // Discord
@@ -1271,6 +1280,7 @@
                     lidarr_path: document.getElementById('lidarrPath').value,
                     forbidden_words: forbiddenWords,
                     duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10,
+                    min_match_score: parseFloat(document.getElementById('minMatchScore').value) || 0.8,
                     concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
                     acoustid_api_key: document.getElementById('acoustidApiKey').value
                 })
