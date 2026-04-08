@@ -257,3 +257,162 @@ def test_send_notifications_filtered_sends_none(
         "msg", log_type="download_started"
     )
     mock_post.assert_not_called()
+
+
+# --- MarkdownV2 helpers ---
+
+
+def test_md2_escape_handles_specials():
+    raw = "Hello (world)! v1.0_beta-2"
+    escaped = notifications.md2_escape(raw)
+    # Each MD2 special must be backslash-escaped exactly once.
+    for ch in "()!._-":
+        assert f"\\{ch}" in escaped
+    # Non-special chars are untouched.
+    assert "Hello" in escaped
+
+
+def test_md2_escape_none_and_empty():
+    assert notifications.md2_escape(None) == ""
+    assert notifications.md2_escape("") == ""
+
+
+def test_md2_escape_coerces_non_string():
+    assert notifications.md2_escape(42) == "42"
+
+
+def test_md2_link_escapes_label_and_url():
+    link = notifications.md2_link("Open (here)", "https://x/y(z)")
+    # Label parens are escaped.
+    assert "Open \\(here\\)" in link
+    # URL closing paren is escaped so MD2 link parsing terminates correctly.
+    assert "\\)" in link.split("](", 1)[1]
+
+
+def test_build_lidarr_album_link_returns_empty_when_missing():
+    assert notifications.build_lidarr_album_link("", "abc") == ""
+    assert notifications.build_lidarr_album_link("http://l", "") == ""
+
+
+def test_build_lidarr_album_link_strips_trailing_slash():
+    link = notifications.build_lidarr_album_link(
+        "http://lidarr/", "abc-123",
+    )
+    assert "http://lidarr/album/abc-123" in link
+    # MD2 label should be present and escaped (the label has no
+    # specials so it appears verbatim).
+    assert "Open in Lidarr" in link
+
+
+def test_build_musicbrainz_link_uses_release_group():
+    link = notifications.build_musicbrainz_link("mbid-xyz")
+    assert "musicbrainz.org/release-group/mbid-xyz" in link
+
+
+def test_build_musicbrainz_link_empty():
+    assert notifications.build_musicbrainz_link("") == ""
+
+
+# --- Telegram sendPhoto path ---
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_telegram_uses_sendphoto_when_photo_url(
+    mock_cfg, mock_post, mock_config
+):
+    mock_cfg.return_value = mock_config
+    notifications.send_telegram(
+        "caption body",
+        log_type="album_error",
+        photo_url="https://img.example.com/cover.jpg",
+        parse_mode="MarkdownV2",
+    )
+    call = mock_post.call_args
+    url = call.args[0] if call.args else call.kwargs.get("url")
+    payload = call.kwargs["json"]
+    assert url.endswith("/sendPhoto")
+    assert payload["photo"] == "https://img.example.com/cover.jpg"
+    assert payload["caption"] == "caption body"
+    assert payload["parse_mode"] == "MarkdownV2"
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_telegram_uses_sendmessage_without_photo(
+    mock_cfg, mock_post, mock_config
+):
+    mock_cfg.return_value = mock_config
+    notifications.send_telegram(
+        "body", log_type="album_error", parse_mode="MarkdownV2",
+    )
+    call = mock_post.call_args
+    url = call.args[0] if call.args else call.kwargs.get("url")
+    payload = call.kwargs["json"]
+    assert url.endswith("/sendMessage")
+    assert payload["text"] == "body"
+    assert payload["parse_mode"] == "MarkdownV2"
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_telegram_truncates_long_caption(
+    mock_cfg, mock_post, mock_config
+):
+    mock_cfg.return_value = mock_config
+    long_body = "x" * 2000
+    notifications.send_telegram(
+        long_body, log_type="album_error",
+        photo_url="https://i/c.jpg",
+    )
+    payload = mock_post.call_args.kwargs["json"]
+    assert len(payload["caption"]) <= 1024
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_telegram_disable_notification_passthrough(
+    mock_cfg, mock_post, mock_config
+):
+    mock_cfg.return_value = mock_config
+    notifications.send_telegram(
+        "msg", log_type="album_error", disable_notification=True,
+    )
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["disable_notification"] is True
+
+
+# --- send_notifications routes telegram-specific body ---
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_notifications_uses_telegram_message_when_provided(
+    mock_cfg, mock_post, mock_config
+):
+    mock_cfg.return_value = mock_config
+    notifications.send_notifications(
+        "plain fallback",
+        log_type="album_error",
+        telegram_message="*MD2* body",
+        telegram_parse_mode="MarkdownV2",
+        photo_url="https://i/c.jpg",
+    )
+    # Two calls: telegram (sendPhoto) + discord
+    assert mock_post.call_count == 2
+    tg_payload = mock_post.call_args_list[0].kwargs["json"]
+    assert tg_payload["caption"] == "*MD2* body"
+    assert tg_payload["parse_mode"] == "MarkdownV2"
+    assert tg_payload["photo"] == "https://i/c.jpg"
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_discord_embed_with_url(mock_cfg, mock_post, mock_config):
+    mock_cfg.return_value = mock_config
+    embed = {"title": "T", "description": "d", "url": "http://l/album/x"}
+    notifications.send_discord(
+        "msg", log_type="album_error", embed_data=embed,
+    )
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["embeds"][0]["url"] == "http://l/album/x"

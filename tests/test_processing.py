@@ -92,7 +92,7 @@ class TestDownloadTracks:
             cover_url="http://cover.jpg",
             lidarr_album_path="/music/a",
         )
-        failed, _, size = _download_tracks(
+        failed, _, size, _stats = _download_tracks(
             [track], album_path, album, album_ctx,
         )
 
@@ -145,7 +145,7 @@ class TestDownloadTracks:
         ]
         download_process["current_track_index"] = -1
 
-        failed, _, size = _download_tracks(
+        failed, _, size, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -285,7 +285,7 @@ class TestTrackStateTransitions:
         ]
         download_process["current_track_index"] = -1
         download_process["stop"] = False
-        failed, _, size = _download_tracks(
+        failed, _, size, _stats = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
         assert len(failed) == 0
@@ -315,7 +315,7 @@ class TestTrackStateTransitions:
         ]
         download_process["current_track_index"] = -1
         download_process["stop"] = False
-        failed, _, size = _download_tracks(
+        failed, _, size, _stats = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
         assert download_process["tracks"][0]["status"] == "skipped"
@@ -339,7 +339,7 @@ class TestTrackStateTransitions:
              "error_message": "", "skip": False},
         ]
         download_process["current_track_index"] = -1
-        failed, _, size = _download_tracks(
+        failed, _, size, _stats = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
         assert download_process["tracks"][0]["status"] == "skipped"
@@ -373,7 +373,7 @@ class TestTrackStateTransitions:
         ]
         download_process["current_track_index"] = -1
         download_process["stop"] = False
-        failed, _, size = _download_tracks(
+        failed, _, size, _stats = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
         assert len(failed) == 0
@@ -405,7 +405,7 @@ class TestTrackStateTransitions:
         ]
         download_process["current_track_index"] = -1
         download_process["stop"] = False
-        failed, _, size = _download_tracks(
+        failed, _, size, _stats = _download_tracks(
             tracks, album_path, {}, _make_album_ctx(),
         )
         assert len(failed) == 0
@@ -510,7 +510,7 @@ class TestVerifyRetryLoop:
         ]
 
         album = {"tracks": [track]}
-        failed, _, size = _download_tracks(
+        failed, _, size, _stats = _download_tracks(
             [track], album_path, album, _make_album_ctx(),
         )
 
@@ -576,7 +576,7 @@ class TestVerifyRetryLoop:
             "matched_id": "other-rec",
         }
 
-        failed, _, _ = _download_tracks(
+        failed, _, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -641,7 +641,7 @@ class TestVerifyRetryLoop:
             "matched_id": None,
         }
 
-        failed, _, _ = _download_tracks(
+        failed, _, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -701,7 +701,7 @@ class TestVerifyRetryLoop:
             }
         mock_dl_candidate.side_effect = fake_download
 
-        failed, _, _ = _download_tracks(
+        failed, _, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -755,7 +755,7 @@ class TestVerifyRetryLoop:
             }
         mock_dl_candidate.side_effect = fake_download
 
-        failed, _, _ = _download_tracks(
+        failed, _, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -810,7 +810,7 @@ class TestVerifyRetryLoop:
 
         mock_verify.return_value = None
 
-        failed, _, _ = _download_tracks(
+        failed, _, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -880,7 +880,7 @@ class TestVerifyRetryLoop:
              "matched_id": None},
         ]
 
-        failed, succeeded, _ = _download_tracks(
+        failed, succeeded, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -930,7 +930,7 @@ class TestVerifyRetryLoop:
             }
         mock_dl_candidate.side_effect = fake_download
 
-        failed, succeeded, _ = _download_tracks(
+        failed, succeeded, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -982,7 +982,7 @@ class TestVerifyRetryLoop:
             }
         mock_dl_candidate.side_effect = fake_download
 
-        failed, succeeded, _ = _download_tracks(
+        failed, succeeded, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1039,7 +1039,7 @@ class TestVerifyRetryLoop:
             "status": "unverified", "fp_data": {}, "matched_id": None,
         }
 
-        failed, succeeded, _ = _download_tracks(
+        failed, succeeded, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1088,7 +1088,7 @@ class TestVerifyRetryLoop:
             }
         mock_dl_candidate.side_effect = fake_download
 
-        failed, succeeded, _ = _download_tracks(
+        failed, succeeded, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1152,7 +1152,7 @@ class TestVerifyRetryLoop:
             },
         }
 
-        failed, succeeded, _ = _download_tracks(
+        failed, succeeded, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1251,7 +1251,7 @@ class TestVerifyRetryIntegration:
              "matched_id": "expected-rec"},
         ]
 
-        failed, _, _ = _download_tracks(
+        failed, _, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1456,7 +1456,7 @@ class TestCandidateAttemptCapture:
             "matched_id": "other-rec",
         }
 
-        failed, _, _ = _download_tracks(
+        failed, _, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1503,7 +1503,7 @@ class TestCandidateAttemptCapture:
             "error_message": "403 Forbidden",
         }
 
-        failed, _, _ = _download_tracks(
+        failed, _, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1556,7 +1556,7 @@ class TestCandidateAttemptCapture:
             "matched_id": None,
         }
 
-        failed, _, _ = _download_tracks(
+        failed, _, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1611,7 +1611,7 @@ class TestCandidateAttemptCapture:
             "matched_id": "other-rec",
         }
 
-        failed, _, _ = _download_tracks(
+        failed, _, _, _stats = _download_tracks(
             [track], album_path, {"tracks": [track]},
             _make_album_ctx(),
         )
@@ -1746,3 +1746,167 @@ def test_handle_post_download_partial_creates_both_log_types(
     assert fail_logs["total"] == 1
     success_logs = models.get_logs(log_type="track_download")
     assert success_logs["total"] == 1
+
+
+# --- Notification helpers (PR1: rich notifications) ---
+
+
+class TestVerifySummaryLines:
+    """`_verify_summary_lines` aggregates AcoustID telemetry."""
+
+    def test_returns_empty_when_no_acoustid_activity(self):
+        import processing
+
+        stats = processing._new_verify_stats()
+        field, lines = processing._verify_summary_lines(stats, 0)
+        assert field is None
+        assert lines == []
+
+    def test_returns_empty_when_stats_none(self):
+        import processing
+
+        field, lines = processing._verify_summary_lines(None, 0)
+        assert field is None
+        assert lines == []
+
+    def test_summarizes_verified_with_avg_score(self):
+        import processing
+
+        stats = processing._new_verify_stats()
+        stats["verified_count"] = 2
+        stats["accepted_acoustid_scores"] = [0.9, 0.7]
+        field, lines = processing._verify_summary_lines(stats, 2)
+        assert "2/2 verified" in field
+        assert "avg 0.80" in field
+        # MD2-escaped line is non-empty.
+        assert lines and "AcoustID" in lines[0]
+
+    def test_summarizes_mismatch_and_best_rejected(self):
+        import processing
+
+        stats = processing._new_verify_stats()
+        stats["mismatch_count"] = 3
+        stats["best_rejected_score"] = 0.62
+        field, _lines = processing._verify_summary_lines(stats, 0)
+        assert "3 auto-banned" in field
+        assert "best rejected 0.62" in field
+
+
+class TestFormatFailedTracks:
+    def test_format_field_includes_reason(self):
+        import processing
+
+        failed = [
+            {"title": "Track A", "reason": "no match"},
+            {"title": "Track B", "reason": ""},
+        ]
+        field = processing._format_failed_tracks_field(failed)
+        assert "Track A — no match" in field
+        # Empty reason falls back to a sentinel.
+        assert "Track B — unknown error" in field
+
+    def test_format_field_truncates(self):
+        import processing
+
+        failed = [
+            {"title": f"T{i}", "reason": "x" * 100} for i in range(50)
+        ]
+        field = processing._format_failed_tracks_field(failed, limit=200)
+        assert len(field) <= 200
+        assert field.endswith("…")
+
+    def test_format_md2_escapes_specials(self):
+        import processing
+
+        failed = [{"title": "Track (1)", "reason": "score 0.5"}]
+        lines = processing._format_failed_tracks_md2(failed)
+        assert lines and "\\(" in lines[0] and "\\)" in lines[0]
+        assert "0\\.5" in lines[0]
+
+
+class TestSendAlbumNotification:
+    """`_send_album_notification` routes data into both channels."""
+
+    def test_passes_telegram_md2_and_discord_embed(self, monkeypatch):
+        import processing
+
+        monkeypatch.setattr(
+            processing, "load_config",
+            lambda: {"lidarr_url": "http://lidarr"},
+        )
+        captured = {}
+
+        def fake_send(message, **kw):
+            captured["message"] = message
+            captured.update(kw)
+
+        monkeypatch.setattr(processing, "send_notifications", fake_send)
+
+        processing._send_album_notification(
+            log_type="download_success",
+            title="Download Successful",
+            color=0x2ECC71,
+            artist_name="A.B.",
+            album_title="Album (Deluxe)",
+            album_mbid="mbid-1",
+            cover_url="https://i/c.jpg",
+            fields=[{"name": "Tracks", "value": "5/5", "inline": True}],
+            extra_md2_lines=["*Tracks:* 5/5"],
+        )
+
+        assert captured["log_type"] == "download_success"
+        assert captured["telegram_parse_mode"] == "MarkdownV2"
+        assert captured["photo_url"] == "https://i/c.jpg"
+        # MD2 body has escaped specials and the Lidarr/MB links.
+        tg = captured["telegram_message"]
+        assert "A\\.B\\." in tg
+        assert "Album \\(Deluxe\\)" in tg
+        assert "lidarr/album/mbid-1" in tg
+        assert "musicbrainz.org/release-group/mbid-1" in tg
+        # Discord embed carries thumbnail + url + the field.
+        embed = captured["embed_data"]
+        assert embed["thumbnail"] == "https://i/c.jpg"
+        assert embed["url"] == "http://lidarr/album/mbid-1"
+        assert embed["fields"][0]["value"] == "5/5"
+
+    def test_omits_links_when_no_mbid(self, monkeypatch):
+        import processing
+
+        monkeypatch.setattr(
+            processing, "load_config",
+            lambda: {"lidarr_url": "http://lidarr"},
+        )
+        captured = {}
+        monkeypatch.setattr(
+            processing, "send_notifications",
+            lambda message, **kw: captured.update(kw),
+        )
+
+        processing._send_album_notification(
+            log_type="album_error",
+            title="Download Failed",
+            color=0xE74C3C,
+            artist_name="A",
+            album_title="B",
+            album_mbid="",
+            cover_url="",
+        )
+        assert "url" not in captured["embed_data"]
+        assert "thumbnail" not in captured["embed_data"]
+        assert captured["photo_url"] is None
+        assert "lidarr/album" not in captured["telegram_message"]
+
+
+class TestVerifyStatsAccumulation:
+    """Verify the new 4-tuple return wires stats out of `_download_tracks`."""
+
+    def test_new_verify_stats_has_expected_keys(self):
+        import processing
+
+        stats = processing._new_verify_stats()
+        assert stats == {
+            "verified_count": 0,
+            "accepted_acoustid_scores": [],
+            "mismatch_count": 0,
+            "best_rejected_score": 0.0,
+        }
