@@ -28,7 +28,12 @@ from metadata import (
     get_itunes_tracks,
     tag_mp3,
 )
-from notifications import send_notifications
+from notifications import (
+    build_musicbrainz_link,
+    md2_link,
+    md2_escape,
+    send_notifications,
+)
 from utils import sanitize_filename, set_permissions
 
 logger = logging.getLogger(__name__)
@@ -47,6 +52,96 @@ download_process = {
 }
 
 queue_lock = threading.Lock()
+
+
+def _new_verify_stats():
+    """Initial mutable container for per-album AcoustID telemetry.
+
+    Tracked under ``_results_lock`` while ``_download_tracks`` runs and
+    surfaced in success/failure notifications. ``best_rejected_score``
+    is the highest AcoustID confidence among *rejected* candidates,
+    which lets a user tell "no fingerprint hit at all" apart from
+    "the closest match was 0.62 — almost the right track".
+    """
+    return {
+        "verified_count": 0,
+        "accepted_acoustid_scores": [],
+        "mismatch_count": 0,
+        "best_rejected_score": 0.0,
+    }
+
+
+def _send_album_notification(
+    *, log_type, title, color, artist_name, album_title,
+    album_mbid="", cover_url="", fields=None, extra_md2_lines=None,
+    disable_notification=False,
+):
+    """Send a structured album notification to all channels.
+
+    Builds parallel Telegram (MarkdownV2) and Discord (embed) payloads
+    from the same set of fields so the two channels stay in sync. The
+    Telegram body uses MarkdownV2 with inline links to Lidarr and
+    MusicBrainz when ``album_mbid`` is available; Discord receives the
+    cover URL as the embed thumbnail and the same deep link as the
+    embed ``url``.
+
+    Args:
+        log_type: Notification filter key matching ``*_log_types`` in
+            config.
+        title: Headline shown as the Discord embed title and the
+            bold first line of the Telegram message.
+        color: Discord embed color (24-bit int).
+        artist_name: Album artist (will be MD2-escaped).
+        album_title: Album title (will be MD2-escaped).
+        album_mbid: MusicBrainz release-group MBID; used to build
+            Lidarr / MusicBrainz deep links when present.
+        cover_url: Optional cover artwork URL.
+        fields: Optional list of Discord embed field dicts.
+        extra_md2_lines: Optional pre-escaped MarkdownV2 lines appended
+            to the Telegram body. Callers are responsible for escaping
+            any literal MD2 specials.
+        disable_notification: If true, deliver Telegram silently.
+    """
+    plain_lines = [
+        title,
+        f"Album: {album_title}",
+        f"Artist: {artist_name}",
+    ]
+    md2_lines = [
+        f"*{md2_escape(title)}*",
+        f"*Album:* {md2_escape(album_title)}",
+        f"*Artist:* {md2_escape(artist_name)}",
+    ]
+    if extra_md2_lines:
+        md2_lines.extend(extra_md2_lines)
+
+    mb_link = build_musicbrainz_link(album_mbid)
+    if mb_link:
+        md2_lines.append(mb_link)
+
+    embed_data = {
+        "title": title,
+        "description": f"{artist_name} — {album_title}",
+        "color": color,
+    }
+    if cover_url:
+        embed_data["thumbnail"] = cover_url
+    if fields:
+        embed_data["fields"] = fields
+    if album_mbid:
+        embed_data["url"] = (
+            f"https://musicbrainz.org/release-group/{album_mbid}"
+        )
+
+    send_notifications(
+        "\n".join(plain_lines),
+        log_type=log_type,
+        embed_data=embed_data,
+        telegram_message="\n".join(md2_lines),
+        telegram_parse_mode="MarkdownV2",
+        photo_url=cover_url or None,
+        disable_notification=disable_notification,
+    )
 
 
 class TrackSkippedException(Exception):
@@ -129,6 +224,7 @@ def process_album_download(album_id, force=False):
     cover_data = None
     lidarr_album_path = ""
     total_downloaded_size = 0
+    album_mbid = ""
 
     try:
         album = lidarr_request(f"album/{album_id}")
@@ -203,6 +299,15 @@ def process_album_download(album_id, force=False):
         album_path = os.path.join(artist_path, album_folder_name)
         os.makedirs(album_path, exist_ok=True)
 
+        # Fetch cover art before sending the download_started
+        # notification so the artwork can render in Telegram (sendPhoto)
+        # and Discord (embed thumbnail).
+        cover_data = get_itunes_artwork(artist_name, album_title)
+        if cover_data:
+            with open(os.path.join(album_path, "cover.jpg"), "wb") as f:
+                f.write(cover_data)
+        cover_url = download_process.get("cover_url", "")
+
         models.add_log(
             log_type="download_started",
             album_id=album_id,
@@ -210,27 +315,23 @@ def process_album_download(album_id, force=False):
             artist_name=artist_name,
             details=f"Starting download of {len(tracks)} track(s)",
         )
-        send_notifications(
-            f"Download Started\n"
-            f"Album: {album_title}\n"
-            f"Artist: {artist_name}\n"
-            f"Tracks: {len(tracks)}",
+        _send_album_notification(
             log_type="download_started",
-            embed_data={
-                "title": "Download Started",
-                "description": f"{artist_name} — {album_title}",
-                "color": 0x3498DB,
-                "fields": [
-                    {"name": "Tracks", "value": str(len(tracks)),
-                     "inline": True},
-                ],
-            },
+            title="Download Started",
+            color=0x3498DB,
+            artist_name=artist_name,
+            album_title=album_title,
+            album_mbid=album_mbid,
+            cover_url=cover_url,
+            fields=[
+                {"name": "Tracks", "value": str(len(tracks)),
+                 "inline": True},
+            ],
+            extra_md2_lines=[
+                f"*Tracks:* {md2_escape(len(tracks))}",
+            ],
+            disable_notification=True,
         )
-
-        cover_data = get_itunes_artwork(artist_name, album_title)
-        if cover_data:
-            with open(os.path.join(album_path, "cover.jpg"), "wb") as f:
-                f.write(cover_data)
 
         tracks_to_download = _filter_tracks(
             tracks, force, album_path,
@@ -270,10 +371,11 @@ def process_album_download(album_id, force=False):
             }
             for i, t in enumerate(tracks_to_download)
         ]
-        failed_tracks, succeeded_tracks, total_downloaded_size = (
-            _download_tracks(
-                tracks_to_download, album_path, album, album_ctx,
-            )
+        (
+            failed_tracks, succeeded_tracks, total_downloaded_size,
+            verify_stats,
+        ) = _download_tracks(
+            tracks_to_download, album_path, album, album_ctx,
         )
 
         set_permissions(artist_path)
@@ -282,6 +384,9 @@ def process_album_download(album_id, force=False):
             failed_tracks, succeeded_tracks,
             tracks_to_download, album_id,
             album_title, artist_name, total_downloaded_size,
+            verify_stats=verify_stats,
+            album_mbid=album_mbid,
+            cover_url=download_process.get("cover_url", ""),
         )
         if result is not None:
             return result
@@ -301,6 +406,8 @@ def process_album_download(album_id, force=False):
         _log_import_result(
             failed_tracks, album_id, album_title, artist_name,
             total_downloaded_size,
+            album_mbid=album_mbid,
+            cover_url=download_process.get("cover_url", ""),
         )
 
         lidarr_request(
@@ -327,14 +434,17 @@ def process_album_download(album_id, force=False):
         logger.error("Error during album download: %s", e, exc_info=True)
         _artist = download_process.get("artist_name", "Unknown")
         _album = download_process.get("album_title", "Unknown")
-        send_notifications(
-            f"Download failed\nAlbum: {_album}\nArtist: {_artist}",
+        _send_album_notification(
             log_type="album_error",
-            embed_data={
-                "title": "Download Failed",
-                "description": f"{_artist} — {_album}",
-                "color": 0xE74C3C,
-            },
+            title="Download Failed",
+            color=0xE74C3C,
+            artist_name=_artist,
+            album_title=_album,
+            album_mbid=album_mbid,
+            cover_url=download_process.get("cover_url", ""),
+            extra_md2_lines=[
+                f"_Error:_ {md2_escape(str(e))}",
+            ],
         )
         models.add_log(
             log_type="album_error",
@@ -659,6 +769,7 @@ def _download_tracks(
     failed_tracks = []
     succeeded_tracks = []
     total_downloaded_size = 0
+    verify_stats = _new_verify_stats()
     _results_lock = threading.Lock()
 
     config = load_config()
@@ -852,8 +963,27 @@ def _download_tracks(
                             fp_data=fp_data,
                         )
                     )
+                    with _results_lock:
+                        verify_stats["verified_count"] += 1
+                        verify_stats[
+                            "accepted_acoustid_scores"
+                        ].append(
+                            float(fp_data.get("acoustid_score", 0.0))
+                        )
                 elif vresult["status"] == "mismatch":
                     mismatch_fp = vresult["fp_data"]
+                    with _results_lock:
+                        verify_stats["mismatch_count"] += 1
+                        mismatch_score = float(
+                            mismatch_fp.get("acoustid_score", 0.0)
+                        )
+                        if (
+                            mismatch_score
+                            > verify_stats["best_rejected_score"]
+                        ):
+                            verify_stats[
+                                "best_rejected_score"
+                            ] = mismatch_score
                     mismatch_attempt = _build_candidate_attempt(
                         candidate,
                         CandidateOutcome.MISMATCH,
@@ -956,6 +1086,10 @@ def _download_tracks(
                     "title": track_title,
                     "track_num": track_num,
                     "track_download_id": td_id,
+                    "youtube_url": dl_result.get("youtube_url", ""),
+                    "youtube_title": dl_result.get(
+                        "youtube_title", ""
+                    ),
                 })
             accepted = True
             break
@@ -1047,6 +1181,12 @@ def _download_tracks(
                             "title": track_title,
                             "track_num": track_num,
                             "track_download_id": td_id,
+                            "youtube_url": fb_result.get(
+                                "youtube_url", ""
+                            ),
+                            "youtube_title": fb_result.get(
+                                "youtube_title", ""
+                            ),
                         })
                     return
                 else:
@@ -1120,12 +1260,122 @@ def _download_tracks(
             except Exception as e:
                 logger.warning("Track worker exception: %s", e)
 
-    return failed_tracks, succeeded_tracks, total_downloaded_size
+    return (
+        failed_tracks, succeeded_tracks, total_downloaded_size,
+        verify_stats,
+    )
+
+
+def _format_failed_tracks_field(failed_tracks, *, limit=1024):
+    """Format failed tracks with their reasons for an embed field.
+
+    Each entry shows ``• <title> — <reason>``. Truncates to ``limit``
+    characters so we never exceed Discord's per-field cap.
+    """
+    lines = []
+    for ft in failed_tracks:
+        reason = ft.get("reason", "") or "unknown error"
+        lines.append(f"• {ft['title']} — {reason}")
+    text = "\n".join(lines)
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return text
+
+
+def _format_failed_tracks_md2(failed_tracks):
+    """MarkdownV2-escaped failed-track lines for the Telegram body."""
+    lines = []
+    for ft in failed_tracks:
+        reason = ft.get("reason", "") or "unknown error"
+        lines.append(
+            f"• *{md2_escape(ft['title'])}* — "
+            f"_{md2_escape(reason)}_"
+        )
+    return lines
+
+
+def _format_youtube_links_field(succeeded_tracks, *, limit=1024):
+    """Plain-text YouTube links for a Discord embed field.
+
+    Each line shows ``• <youtube title> — <url>``. Tracks without a URL
+    are skipped. Truncates to ``limit`` characters.
+    """
+    lines = []
+    for st in succeeded_tracks:
+        url = st.get("youtube_url", "")
+        if not url:
+            continue
+        label = (
+            st.get("youtube_title")
+            or st.get("title")
+            or url
+        )
+        lines.append(f"• {label} — {url}")
+    text = "\n".join(lines)
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return text
+
+
+def _format_youtube_links_md2(succeeded_tracks):
+    """MarkdownV2 lines of clickable YouTube links for Telegram.
+
+    Each line renders the YouTube video title as the link label, with
+    the underlying href pointing at the actual YouTube URL. Tracks
+    without a URL are skipped.
+    """
+    lines = []
+    for st in succeeded_tracks:
+        url = st.get("youtube_url", "")
+        if not url:
+            continue
+        label = (
+            st.get("youtube_title")
+            or st.get("title")
+            or url
+        )
+        lines.append(f"• {md2_link(label, url)}")
+    return lines
+
+
+def _verify_summary_lines(verify_stats, verified_total):
+    """Build (plain_field_value, md2_lines) describing AcoustID stats.
+
+    Returns ``(None, [])`` when there is nothing interesting to report
+    (no AcoustID activity at all).
+    """
+    if not verify_stats:
+        return None, []
+    verified = verify_stats.get("verified_count", 0)
+    mismatches = verify_stats.get("mismatch_count", 0)
+    best_rejected = verify_stats.get("best_rejected_score", 0.0)
+    scores = verify_stats.get("accepted_acoustid_scores", [])
+
+    if verified == 0 and mismatches == 0:
+        return None, []
+
+    parts = []
+    if verified_total > 0:
+        parts.append(f"{verified}/{verified_total} verified")
+    if scores:
+        avg = sum(scores) / len(scores)
+        parts.append(f"avg {avg:.2f}")
+    if mismatches:
+        parts.append(f"{mismatches} auto-banned")
+    if best_rejected > 0:
+        parts.append(f"best rejected {best_rejected:.2f}")
+    field_value = ", ".join(parts) if parts else None
+    md2_lines = (
+        [f"*AcoustID:* {md2_escape(field_value)}"]
+        if field_value else []
+    )
+    return field_value, md2_lines
 
 
 def _handle_post_download(
     failed_tracks, succeeded_tracks, tracks_to_download,
     album_id, album_title, artist_name, total_downloaded_size,
+    *, verify_stats=None, album_mbid="", cover_url="",
 ):
     """Log and notify about download results.
 
@@ -1137,28 +1387,57 @@ def _handle_post_download(
         if t.get("status") == "skipped"
     )
     attempted_count = len(tracks_to_download) - skipped_count
+    verified_total = attempted_count - len(failed_tracks)
+    verify_field, verify_md2_lines = _verify_summary_lines(
+        verify_stats, verified_total,
+    )
+    yt_links_field = _format_youtube_links_field(succeeded_tracks)
+    yt_links_md2 = _format_youtube_links_md2(succeeded_tracks)
 
     if failed_tracks:
-        failed_list = "\n".join(
-            [f"* {t['title']}" for t in failed_tracks]
+        failed_field = _format_failed_tracks_field(failed_tracks)
+        failed_md2 = _format_failed_tracks_md2(failed_tracks)
+        best_rejected = (
+            verify_stats.get("best_rejected_score", 0.0)
+            if verify_stats else 0.0
         )
 
         if attempted_count > 0 and len(failed_tracks) == attempted_count:
-            send_notifications(
-                f"Download Failed (All Tracks)\n"
-                f"Album: {album_title}\nArtist: {artist_name}\n\n"
-                f"Failed tracks:\n{failed_list}",
+            extra_md2 = []
+            extra_md2.extend(verify_md2_lines)
+            if best_rejected > 0:
+                extra_md2.append(
+                    f"*Best rejected score:*"
+                    f" {md2_escape(f'{best_rejected:.2f}')}"
+                )
+            extra_md2.append("*Failed tracks:*")
+            extra_md2.extend(failed_md2)
+            embed_fields = []
+            if verify_field:
+                embed_fields.append({
+                    "name": "AcoustID",
+                    "value": verify_field, "inline": False,
+                })
+            if best_rejected > 0:
+                embed_fields.append({
+                    "name": "Best rejected score",
+                    "value": f"{best_rejected:.2f}",
+                    "inline": True,
+                })
+            embed_fields.append({
+                "name": "Failed Tracks",
+                "value": failed_field, "inline": False,
+            })
+            _send_album_notification(
                 log_type="album_error",
-                embed_data={
-                    "title": "Download Failed",
-                    "description": f"{artist_name} — {album_title}",
-                    "color": 0xE74C3C,
-                    "fields": [{
-                        "name": "Failed Tracks",
-                        "value": failed_list[:1024],
-                        "inline": False,
-                    }],
-                },
+                title="Download Failed",
+                color=0xE74C3C,
+                artist_name=artist_name,
+                album_title=album_title,
+                album_mbid=album_mbid,
+                cover_url=cover_url,
+                fields=embed_fields,
+                extra_md2_lines=extra_md2,
             )
             logger.error(
                 f"All {len(failed_tracks)} tracks failed to download."
@@ -1197,21 +1476,42 @@ def _handle_post_download(
             return {"error": "All tracks failed to download"}
 
         download_process["result_partial"] = True
-        send_notifications(
-            f"Partial Download Completed\n"
-            f"Album: {album_title}\nArtist: {artist_name}\n\n"
-            f"Failed tracks:\n{failed_list}",
+        partial_extra = list(verify_md2_lines)
+        if best_rejected > 0:
+            partial_extra.append(
+                f"*Best rejected score:*"
+                f" {md2_escape(f'{best_rejected:.2f}')}"
+            )
+        partial_extra.append("*Failed tracks:*")
+        partial_extra.extend(failed_md2)
+        if yt_links_md2:
+            partial_extra.append("*Downloaded from YouTube:*")
+            partial_extra.extend(yt_links_md2)
+        partial_fields = []
+        if verify_field:
+            partial_fields.append({
+                "name": "AcoustID",
+                "value": verify_field, "inline": False,
+            })
+        partial_fields.append({
+            "name": "Failed Tracks",
+            "value": failed_field, "inline": False,
+        })
+        if yt_links_field:
+            partial_fields.append({
+                "name": "YouTube Sources",
+                "value": yt_links_field, "inline": False,
+            })
+        _send_album_notification(
             log_type="partial_success",
-            embed_data={
-                "title": "Partial Download",
-                "description": f"{artist_name} — {album_title}",
-                "color": 0xE67E22,
-                "fields": [{
-                    "name": "Failed Tracks",
-                    "value": failed_list[:1024],
-                    "inline": False,
-                }],
-            },
+            title="Partial Download",
+            color=0xE67E22,
+            artist_name=artist_name,
+            album_title=album_title,
+            album_mbid=album_mbid,
+            cover_url=cover_url,
+            fields=partial_fields,
+            extra_md2_lines=partial_extra,
         )
         logger.warning(
             f"Download completed with {len(failed_tracks)} failed"
@@ -1259,25 +1559,38 @@ def _handle_post_download(
             ),
             total_file_size=total_downloaded_size,
         )
-        send_notifications(
-            f"Download successful\n"
-            f"Album: {album_title}\nArtist: {artist_name}\n"
-            f"Tracks: {attempted_count}"
-            f"/{attempted_count}",
+        success_fields = [{
+            "name": "Tracks",
+            "value": f"{attempted_count}/{attempted_count}",
+            "inline": True,
+        }]
+        if verify_field:
+            success_fields.append({
+                "name": "AcoustID",
+                "value": verify_field, "inline": False,
+            })
+        success_extra = [
+            f"*Tracks:* {md2_escape(f'{attempted_count}/{attempted_count}')}",
+        ]
+        success_extra.extend(verify_md2_lines)
+        if yt_links_md2:
+            success_extra.append("*Downloaded from YouTube:*")
+            success_extra.extend(yt_links_md2)
+        if yt_links_field:
+            success_fields.append({
+                "name": "YouTube Sources",
+                "value": yt_links_field, "inline": False,
+            })
+        _send_album_notification(
             log_type="download_success",
-            embed_data={
-                "title": "Download Successful",
-                "description": f"{artist_name} — {album_title}",
-                "color": 0x2ECC71,
-                "fields": [{
-                    "name": "Tracks",
-                    "value": (
-                        f"{attempted_count}"
-                        f"/{attempted_count}"
-                    ),
-                    "inline": True,
-                }],
-            },
+            title="Download Successful",
+            color=0x2ECC71,
+            artist_name=artist_name,
+            album_title=album_title,
+            album_mbid=album_mbid,
+            cover_url=cover_url,
+            fields=success_fields,
+            extra_md2_lines=success_extra,
         )
         logger.info("All tracks downloaded successfully")
 
@@ -1360,7 +1673,7 @@ def _copy_to_lidarr(
 
 def _log_import_result(
     failed_tracks, album_id, album_title, artist_name,
-    total_downloaded_size,
+    total_downloaded_size, *, album_mbid="", cover_url="",
 ):
     """Log and notify about the Lidarr import result."""
     if failed_tracks:
@@ -1375,22 +1688,23 @@ def _log_import_result(
             ),
             total_file_size=total_downloaded_size,
         )
-        send_notifications(
-            f"Import Partial\nAlbum: {album_title}\n"
-            f"Artist: {artist_name}\n"
-            f"Refreshing in Lidarr"
-            f" (Missing {len(failed_tracks)} tracks)",
+        _send_album_notification(
             log_type="import_partial",
-            embed_data={
-                "title": "Import Partial",
-                "description": f"{artist_name} — {album_title}",
-                "color": 0xE67E22,
-                "fields": [{
-                    "name": "Missing Tracks",
-                    "value": str(len(failed_tracks)),
-                    "inline": True,
-                }],
-            },
+            title="Import Partial",
+            color=0xE67E22,
+            artist_name=artist_name,
+            album_title=album_title,
+            album_mbid=album_mbid,
+            cover_url=cover_url,
+            fields=[{
+                "name": "Missing Tracks",
+                "value": str(len(failed_tracks)),
+                "inline": True,
+            }],
+            extra_md2_lines=[
+                f"_Refreshing in Lidarr_",
+                f"*Missing tracks:* {md2_escape(len(failed_tracks))}",
+            ],
         )
     else:
         models.add_log(
@@ -1401,16 +1715,17 @@ def _log_import_result(
             details="Album downloaded and refreshing in Lidarr",
             total_file_size=total_downloaded_size,
         )
-        send_notifications(
-            f"Import Success\nAlbum: {album_title}\n"
-            f"Artist: {artist_name}\n"
-            f"Refreshing in Lidarr",
+        _send_album_notification(
             log_type="import_success",
-            embed_data={
-                "title": "Import Successful",
-                "description": f"{artist_name} — {album_title}",
-                "color": 0x2ECC71,
-            },
+            title="Import Successful",
+            color=0x2ECC71,
+            artist_name=artist_name,
+            album_title=album_title,
+            album_mbid=album_mbid,
+            cover_url=cover_url,
+            extra_md2_lines=[
+                "_Refreshing in Lidarr_",
+            ],
         )
 
 
