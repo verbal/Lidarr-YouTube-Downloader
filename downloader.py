@@ -10,6 +10,7 @@ Public API:
     download_track_youtube()    -- thin wrapper combining both
 """
 
+import glob
 import logging
 import math
 import os
@@ -21,6 +22,81 @@ import yt_dlp
 from config import load_config
 
 logger = logging.getLogger(__name__)
+
+
+# File extensions yt-dlp may emit, in priority order for resolve_actual_file.
+_KNOWN_AUDIO_EXTENSIONS = (
+    ".mp3", ".m4a", ".opus", ".webm", ".mp4",
+    ".aac", ".ogg", ".weba", ".oga",
+)
+
+
+def build_ydl_audio_opts(fmt):
+    """Return yt-dlp postprocessor/format options for an output audio format.
+
+    Args:
+        fmt: One of 'mp3', 'm4a', 'opus'. Unrecognized values fall back
+            to mp3. Note: m4a and opus are re-muxed without transcoding.
+
+    Returns:
+        Dict with keys:
+            format: yt-dlp format selector.
+            postprocessors: list of postprocessor dicts.
+            suffix: expected output file extension (including leading dot).
+    """
+    fmt = (fmt or "mp3").lower()
+    if fmt == "m4a":
+        return {
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
+            "postprocessors": [
+                {"key": "FFmpegExtractAudio", "preferredcodec": "m4a"},
+            ],
+            "suffix": ".m4a",
+        }
+    if fmt == "opus":
+        return {
+            "format": "bestaudio[ext=webm]/bestaudio/best",
+            "postprocessors": [
+                {"key": "FFmpegExtractAudio", "preferredcodec": "opus"},
+            ],
+            "suffix": ".opus",
+        }
+    return {
+        "format": "bestaudio/best",
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "320",
+            },
+        ],
+        "suffix": ".mp3",
+    }
+
+
+def resolve_actual_file(base_path):
+    """Find the actual downloaded file for a yt-dlp output template.
+
+    Tries known audio extensions in priority order, then falls back to
+    a glob match on the base path. Ignores .part files.
+
+    Args:
+        base_path: Output path prefix used with yt-dlp (no extension).
+
+    Returns:
+        The matching file path, or None if no candidate is found.
+    """
+    for ext in _KNOWN_AUDIO_EXTENSIONS:
+        candidate = base_path + ext
+        if os.path.exists(candidate):
+            return candidate
+    if os.path.exists(base_path) and os.path.isfile(base_path):
+        return base_path
+    matches = [
+        f for f in glob.glob(glob.escape(base_path) + "*")
+        if not f.endswith(".part")
+    ]
+    return matches[0] if matches else None
 
 
 def get_ytdlp_version():
@@ -338,21 +414,17 @@ def download_youtube_candidate(
             clients_to_try.append(alt)
     clients_to_try.append(None)
 
+    audio_opts = build_ydl_audio_opts(config.get("audio_format", "mp3"))
+
     last_err = None
     for pc in clients_to_try:
         if skip_check and skip_check():
             return {"skipped": True}
         ydl_opts_download = {
             **_build_common_opts(player_client=pc),
-            "format": "bestaudio/best",
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "320",
-                }
-            ],
-            "outtmpl": output_path,
+            "format": audio_opts["format"],
+            "postprocessors": audio_opts["postprocessors"],
+            "outtmpl": output_path + ".%(ext)s",
         }
         if progress_hook:
             ydl_opts_download["progress_hooks"] = [progress_hook]

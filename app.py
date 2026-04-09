@@ -55,7 +55,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.5.5"
+VERSION = "1.5.8"
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
 rate_limit_store = {}
@@ -520,6 +520,17 @@ def api_remove_from_queue(album_id):
 @app.route("/api/download/queue/clear", methods=["POST"])
 def api_clear_queue():
     models.clear_queue()
+    return jsonify({"success": True})
+
+
+@app.route("/api/download/queue/reorder", methods=["PUT"])
+def api_reorder_queue():
+    new_order = (request.json or {}).get("queue", [])
+    if not isinstance(new_order, list):
+        return jsonify(
+            {"success": False, "message": "queue must be a list"},
+        ), 400
+    models.reorder_queue(new_order)
     return jsonify({"success": True})
 
 

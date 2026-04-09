@@ -25,9 +25,28 @@ ALLOWED_CONFIG_KEYS = {
     "discord_enabled", "discord_webhook_url", "discord_log_types",
     "acoustid_enabled", "acoustid_api_key",
     "min_match_score",
+    "audio_format",
 }
 
+SUPPORTED_AUDIO_FORMATS = ("mp3", "m4a", "opus")
+
 MIN_MATCH_SCORE_DEFAULT = 0.8
+
+
+def _normalize_audio_format(value):
+    """Normalize an audio_format value to one of the supported formats.
+
+    Falls back to 'mp3' for unrecognized or empty input.
+    """
+    if not value:
+        return "mp3"
+    lowered = str(value).strip().lower()
+    if lowered in SUPPORTED_AUDIO_FORMATS:
+        return lowered
+    logger.warning(
+        "Unsupported audio_format=%r; falling back to 'mp3'", value,
+    )
+    return "mp3"
 
 
 def _parse_min_match_score(value):
@@ -118,6 +137,9 @@ def load_config():
         "min_match_score": _parse_min_match_score(
             os.getenv("MIN_MATCH_SCORE", "0.8"),
         ),
+        "audio_format": _normalize_audio_format(
+            os.getenv("AUDIO_FORMAT", "mp3"),
+        ),
         "path_conflict": False,
     }
 
@@ -139,6 +161,10 @@ def load_config():
             if "min_match_score" in config:
                 config["min_match_score"] = _parse_min_match_score(
                     config["min_match_score"]
+                )
+            if "audio_format" in config:
+                config["audio_format"] = _normalize_audio_format(
+                    config["audio_format"]
                 )
         except (json.JSONDecodeError, OSError, ValueError) as e:
             logger.warning("Failed to load config file %s: %s", CONFIG_FILE, e)

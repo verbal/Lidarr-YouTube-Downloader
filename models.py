@@ -545,6 +545,35 @@ def clear_queue():
     conn.commit()
 
 
+def reorder_queue(album_ids):
+    """Reorder the queue to match the given album_id list.
+
+    Albums present in the queue but not listed in album_ids are appended
+    to the end in their existing relative order. Unknown album_ids are
+    silently ignored. Returns the resulting list of queued album_ids.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT album_id FROM download_queue ORDER BY position"
+    ).fetchall()
+    existing = [row[0] for row in rows]
+    existing_set = set(existing)
+    reordered = [
+        aid for aid in album_ids
+        if isinstance(aid, int) and aid in existing_set
+    ]
+    reordered_set = set(reordered)
+    tail = [aid for aid in existing if aid not in reordered_set]
+    final_order = reordered + tail
+    for position, aid in enumerate(final_order, start=1):
+        conn.execute(
+            "UPDATE download_queue SET position = ? WHERE album_id = ?",
+            (position, aid),
+        )
+    conn.commit()
+    return final_order
+
+
 def _reorder_queue(conn):
     """Renumber queue positions sequentially starting at 1."""
     rows = conn.execute(

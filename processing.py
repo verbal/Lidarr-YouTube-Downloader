@@ -17,16 +17,18 @@ import models
 from config import load_config
 from models import CandidateOutcome
 from downloader import (
+    build_ydl_audio_opts,
     download_youtube_candidate,
+    resolve_actual_file,
     search_youtube_candidates,
 )
 from fingerprint import fingerprint_track, verify_fingerprint
 from lidarr import get_valid_release_id, lidarr_request
 from metadata import (
     create_xml_metadata,
-    get_itunes_artwork,
+    get_album_artwork,
     get_itunes_tracks,
-    tag_mp3,
+    tag_audio,
 )
 from notifications import (
     build_musicbrainz_link,
@@ -301,12 +303,15 @@ def process_album_download(album_id, force=False):
 
         # Fetch cover art before sending the download_started
         # notification so the artwork can render in Telegram (sendPhoto)
-        # and Discord (embed thumbnail).
-        cover_data = get_itunes_artwork(artist_name, album_title)
+        # and Discord (embed thumbnail). iTunes is tried first; if it
+        # can't find a matching artist, fall back to Lidarr's own URL.
+        cover_url = download_process.get("cover_url", "")
+        cover_data = get_album_artwork(
+            artist_name, album_title, cover_url,
+        )
         if cover_data:
             with open(os.path.join(album_path, "cover.jpg"), "wb") as f:
                 f.write(cover_data)
-        cover_url = download_process.get("cover_url", "")
 
         models.add_log(
             log_type="download_started",
@@ -467,7 +472,13 @@ def process_album_download(album_id, force=False):
 
 
 def _filter_tracks(tracks, force, album_path):
-    """Filter tracks that need downloading."""
+    """Filter tracks that need downloading.
+
+    Skips tracks whose final file already exists on disk, regardless of
+    configured audio format — once a track has been accepted in any
+    supported format we don't want to re-download it just because the
+    user later changed the setting.
+    """
     tracks_to_download = []
     for t in tracks:
         if not force:
@@ -479,10 +490,13 @@ def _filter_tracks(tracks, force, album_path):
                 track_num = 0
             track_title = t["title"]
             sanitized_track = sanitize_filename(track_title)
-            final_file = os.path.join(
-                album_path, f"{track_num:02d} - {sanitized_track}.mp3"
+            base = os.path.join(
+                album_path, f"{track_num:02d} - {sanitized_track}"
             )
-            if os.path.exists(final_file):
+            if any(
+                os.path.exists(base + ext)
+                for ext in (".mp3", ".m4a", ".opus")
+            ):
                 continue
         tracks_to_download.append(t)
     return tracks_to_download
@@ -490,7 +504,7 @@ def _filter_tracks(tracks, force, album_path):
 
 def _cleanup_temp_files(temp_file):
     """Remove temp download files for all common extensions."""
-    for ext in [".mp3", ".webm", ".m4a", ".part", ""]:
+    for ext in [".mp3", ".webm", ".m4a", ".opus", ".part", ""]:
         tmp = temp_file + ext
         if os.path.exists(tmp):
             try:
@@ -565,11 +579,11 @@ def _download_candidate_threaded(
         _cleanup_temp_files(attempt_temp)
         return None
 
-    actual_file = attempt_temp + ".mp3"
-    if not os.path.exists(actual_file):
+    actual_file = resolve_actual_file(attempt_temp)
+    if not actual_file or not os.path.exists(actual_file):
         logger.warning(
-            "Download reported success but file not found: %s",
-            actual_file,
+            "Download reported success but no file found for base: %s",
+            attempt_temp,
         )
         return None
 
@@ -620,9 +634,10 @@ def _accept_track_file(
             album_ctx["album_mbid"], album_ctx["artist_mbid"],
         )
 
+    src_ext = os.path.splitext(src_file)[1] or ".mp3"
     final_file = os.path.join(
         album_path,
-        f"{track_num:02d} - {sanitized_track}.mp3",
+        f"{track_num:02d} - {sanitized_track}{src_ext}",
     )
     try:
         file_size = os.path.getsize(src_file)
@@ -932,7 +947,7 @@ def _download_tracks(
             track_state["youtube_title"] = dl_result.get(
                 "youtube_title", "",
             )
-            tag_mp3(actual_file, track, album, cover_data)
+            tag_audio(actual_file, track, album, cover_data)
 
             cfg = load_config()
             should_verify = (
@@ -1143,9 +1158,10 @@ def _download_tracks(
                     _cleanup_temp_files(fallback_temp)
                     track_state["status"] = "skipped"
                     return
-                fb_file = fallback_temp + ".mp3"
+                fb_file = resolve_actual_file(fallback_temp)
                 if (
                     fb_result.get("success")
+                    and fb_file
                     and os.path.exists(fb_file)
                 ):
                     candidate_attempts_buf.append(
@@ -1163,7 +1179,7 @@ def _download_tracks(
                     track_state["youtube_title"] = fb_result.get(
                         "youtube_title", "",
                     )
-                    tag_mp3(fb_file, track, album, cover_data)
+                    tag_audio(fb_file, track, album, cover_data)
                     file_size, td_id = _accept_track_file(
                         fb_file, track_num, sanitized_track,
                         fb_result, {},

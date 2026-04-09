@@ -405,13 +405,40 @@
             border-radius: 12px;
             margin-bottom: 0.65rem;
             align-items: center;
-            transition: all 0.3s ease;
+            transition: border-color 0.2s ease, opacity 0.2s ease, background 0.2s ease;
             border: 1px solid transparent;
+            cursor: default;
         }
 
         .queue-item:hover {
-            transform: translateX(4px);
             border-color: var(--border-glass);
+        }
+
+        .queue-item.dragging {
+            opacity: 0.35;
+        }
+
+        .queue-item.drag-over {
+            border-color: var(--primary);
+            background: var(--surface-glass);
+        }
+
+        .drag-handle {
+            color: var(--text-dim);
+            cursor: grab;
+            font-size: 0.85rem;
+            padding: 0 0.1rem;
+            flex-shrink: 0;
+            opacity: 0.5;
+            transition: opacity 0.2s;
+        }
+
+        .queue-item:hover .drag-handle {
+            opacity: 1;
+        }
+
+        .drag-handle:active {
+            cursor: grabbing;
         }
 
         .queue-position {
@@ -938,7 +965,7 @@
             color: var(--text-dim);
         }
 
-        .empty-state i {
+        .empty-state > i {
             font-size: 3rem;
             margin-bottom: 1rem;
             opacity: 0.5;
@@ -1461,9 +1488,12 @@
             container.replaceChildren(wrapper);
         }
 
-        function updateQueueFromSSE(queue, statusData) {
-            var container = document.getElementById('downloadQueue');
+        // Drag-and-drop state for the queue (merged from upstream).
+        var currentQueue = [];
+        var isDragging = false;
+        var dragSourceId = null;
 
+        function updateQueueFromSSE(queue, statusData) {
             var totalInQueue = queue.length + (statusData.active ? 1 : 0);
             var badge = document.getElementById('queueBadge');
             if (totalInQueue > 0) {
@@ -1472,6 +1502,17 @@
             } else {
                 badge.classList.remove('active');
             }
+
+            // Freeze rendering while the user is dragging so the
+            // drop target doesn't disappear under their cursor.
+            if (isDragging) return;
+
+            currentQueue = queue;
+            renderQueue(queue);
+        }
+
+        function renderQueue(queue) {
+            var container = document.getElementById('downloadQueue');
 
             if (queue.length === 0) {
                 var empty = document.createElement('div');
@@ -1499,11 +1540,29 @@
             queue.forEach(function(item, index) {
                 var qItem = document.createElement('div');
                 qItem.className = 'queue-item';
+                qItem.setAttribute('draggable', 'true');
+                qItem.addEventListener('dragstart', function(e) { onQueueDragStart(e, item.id); });
+                qItem.addEventListener('dragover', onQueueDragOver);
+                qItem.addEventListener('drop', function(e) { onQueueDrop(e, item.id); });
+                qItem.addEventListener('dragend', onQueueDragEnd);
 
                 // Header row (clickable to expand)
                 var header = document.createElement('div');
                 header.className = 'queue-item-header';
-                header.onclick = function() { toggleQueueTracks(item.id); };
+                header.onclick = function(e) {
+                    // Don't toggle expansion when the click lands on
+                    // the drag handle (which also starts a drag).
+                    if (e.target && e.target.closest('.drag-handle')) return;
+                    toggleQueueTracks(item.id);
+                };
+
+                // Drag handle (grip icon, grabbable)
+                var handle = document.createElement('div');
+                handle.className = 'drag-handle';
+                var handleIcon = document.createElement('i');
+                handleIcon.className = 'fa-solid fa-grip-vertical';
+                handle.appendChild(handleIcon);
+                header.appendChild(handle);
 
                 // Position number
                 var pos = document.createElement('div');
@@ -1600,6 +1659,53 @@
             });
 
             container.replaceChildren(frag);
+        }
+
+        // ---- Drag-and-drop handlers for the queue (from upstream) ----
+
+        function onQueueDragStart(e, albumId) {
+            isDragging = true;
+            dragSourceId = albumId;
+            e.dataTransfer.effectAllowed = 'move';
+            e.currentTarget.classList.add('dragging');
+        }
+
+        function onQueueDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            document.querySelectorAll('.queue-item').forEach(function(el) {
+                el.classList.remove('drag-over');
+            });
+            e.currentTarget.classList.add('drag-over');
+        }
+
+        function onQueueDrop(e, targetId) {
+            e.preventDefault();
+            document.querySelectorAll('.queue-item').forEach(function(el) {
+                el.classList.remove('drag-over', 'dragging');
+            });
+            isDragging = false;
+            if (dragSourceId === targetId) return;
+            var srcIdx = currentQueue.findIndex(function(q) { return q.id === dragSourceId; });
+            var tgtIdx = currentQueue.findIndex(function(q) { return q.id === targetId; });
+            if (srcIdx === -1 || tgtIdx === -1) return;
+            var newQueue = currentQueue.slice();
+            var moved = newQueue.splice(srcIdx, 1)[0];
+            newQueue.splice(tgtIdx, 0, moved);
+            currentQueue = newQueue;
+            renderQueue(newQueue);
+            fetch('/api/download/queue/reorder', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ queue: newQueue.map(function(q) { return q.id; }) })
+            });
+        }
+
+        function onQueueDragEnd(e) {
+            isDragging = false;
+            document.querySelectorAll('.queue-item').forEach(function(el) {
+                el.classList.remove('dragging', 'drag-over');
+            });
         }
 
         const HISTORY_PER_PAGE = 50;

@@ -1,30 +1,62 @@
 # Claude Code
 CLAUDE.local.md
+.claude/
+.serena/
+.superpowers/
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+*.pyd
 *.so
 .Python
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
 venv/
-env/
 .venv/
+env/
+ENV/
 .env
+.env.*
 
-# IDE
+# Test artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+pytest-of-*/
+
+# IDE / OS
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# Test artifacts
-.pytest_cache/
-pytest-of-*/
+# Docker
+docker-compose.override.yml
 
 # Project specific
 /config/
-*.log
 tmp/
-.serena/
-.superpowers/
+*.log
+*.part
+*.tmp
+cookies.txt
+requirements-dev.txt
+
+# Audio files (never commit)
+*.mp3
+*.m4a
+*.opus
+*.webm
+*.flac
+*.ogg
+*.wav
