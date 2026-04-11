@@ -2756,7 +2756,7 @@
 
     <footer>
       <div>Made with love ❤️ • {{ APP_VERSION }}</div>
-      <a
+      
         href="https://github.com/Angrido/Lidarr-YouTube-Downloader"
         target="_blank"
         rel="noopener noreferrer"
@@ -2807,15 +2807,13 @@
         loadAlbums();
         startGlobalPolling();
 
-        /* Restore failed-track button if there are pending failed tracks from a previous session */
         (async () => {
           try {
             const res = await fetch("/api/download/failed");
             const data = await res.json();
             if (data.failed_tracks && data.failed_tracks.length > 0) {
               const openOverlay =
-                new URLSearchParams(window.location.search).get("retry") ===
-                "1";
+                new URLSearchParams(window.location.search).get("retry") === "1";
               showFailedTracksOverlay(data, openOverlay);
               if (openOverlay)
                 history.replaceState(null, "", window.location.pathname);
@@ -2976,7 +2974,7 @@
         return div;
       }
 
-      function renderCards(albums) {
+      function renderCards() {
         const container = document.getElementById("albumContainer");
         container.className = "grid";
         container.innerHTML = "";
@@ -3000,7 +2998,7 @@
         });
       }
 
-      function renderList(albums) {
+      function renderList() {
         const container = document.getElementById("albumContainer");
         container.className = "list-view";
         container.innerHTML = "";
@@ -3057,7 +3055,7 @@
           : '<span class="sort-arrow">▼</span>';
       }
 
-      function renderTable(albums) {
+      function renderTable() {
         const container = document.getElementById("albumContainer");
         container.className = "table-view";
 
@@ -3584,8 +3582,6 @@
 
       function handleProgressUpdate(data, queue) {
         if (!data.active) {
-          /* If there are still items in the queue, we're between albums —
-                   keep the UI stable to prevent flicker */
           if (queue && queue.length > 0) {
             queuedAlbumIds = new Set(queue.map((q) => q.id));
             updateQueueButtons();
@@ -3608,7 +3604,6 @@
             .forEach((e) => e.classList.remove("active"));
           const badge = document.getElementById("queueBadge");
           badge.classList.remove("active");
-          /* Reset minimized badge & ring */
           document.getElementById("minimizedBadge").textContent = "0/0";
           document.getElementById("minimizedRing").style.strokeDashoffset =
             188.5;
@@ -3666,10 +3661,9 @@
           document.getElementById("progressFill").style.width =
             `${overallPercent}%`;
 
-          /* Update minimized button badge & ring */
           document.getElementById("minimizedBadge").textContent =
             `${currentTrack}/${totalTracks}`;
-          const circumference = 2 * Math.PI * 30; /* r=30, ~188.5 */
+          const circumference = 2 * Math.PI * 30;
           const offset = circumference - (circumference * overallPercent) / 100;
           document.getElementById("minimizedRing").style.strokeDashoffset =
             offset;
@@ -3850,7 +3844,6 @@
           document.getElementById("failedOverlay").classList.add("active");
         }
 
-        /* Show reopen button & update count */
         const failedBtn = document.getElementById("failedTracksBtn");
         document.getElementById("failedTracksBtnText").textContent =
           count + " Failed Track" + (count > 1 ? "s" : "");
@@ -4120,24 +4113,20 @@
           ".failed-track-item.resolved",
         );
         if (items.length > 0 && items.length === resolved.length) {
-          /* All tracks resolved — update button */
           const btn = document.getElementById("failedTracksBtn");
           btn.innerHTML =
             '<i class="fa-solid fa-circle-check"></i> <span>All Resolved!</span>';
           btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
           btn.style.boxShadow = "0 8px 24px rgba(16, 185, 129, 0.35)";
-          /* Auto-close overlay after a brief pause */
           setTimeout(() => {
             document.getElementById("failedOverlay").classList.remove("active");
           }, 1500);
-          /* Hide button after a few seconds */
           setTimeout(() => {
             btn.classList.remove("active");
             btn.style.background = "";
             btn.style.boxShadow = "";
           }, 5000);
         } else {
-          /* Update remaining count */
           const remaining = items.length - resolved.length;
           document.getElementById("failedTracksBtnText").textContent =
             remaining + " Failed Track" + (remaining > 1 ? "s" : "");

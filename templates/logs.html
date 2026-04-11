@@ -604,57 +604,6 @@
         }
         .ban-url-link:hover { text-decoration: underline; }
 
-        .log-type {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.25rem 0.75rem;
-            border-radius: 999px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-
-        .log-type.download_started {
-            background: rgba(59, 130, 246, 0.1);
-            color: #3b82f6;
-        }
-
-        .log-type.download_success {
-            background: rgba(16, 185, 129, 0.1);
-            color: var(--primary);
-        }
-
-        .log-type.partial_success {
-            background: rgba(245, 158, 11, 0.1);
-            color: var(--warning);
-        }
-
-        .log-type.import_partial {
-            background: rgba(245, 158, 11, 0.1);
-            color: var(--warning);
-        }
-
-        .log-type.import_success {
-            background: rgba(16, 185, 129, 0.1);
-            color: var(--primary);
-        }
-
-        .log-type.import_failed {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--danger);
-        }
-
-        .log-type.album_error {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--danger);
-        }
-
-        .log-type.manual_download {
-            background: rgba(139, 92, 246, 0.1);
-            color: #8b5cf6;
-        }
-
         .log-file-size {
             display: inline-flex;
             align-items: center;
@@ -967,13 +916,11 @@
             setTimeout(() => toggle.classList.remove('spin'), 500);
         }
 
-
         if (localStorage.getItem('theme') === 'light') {
             document.body.classList.add('light');
             document.getElementById('theme-icon').classList.remove('fa-moon');
             document.getElementById('theme-icon').classList.add('fa-sun');
         }
-
 
         let failedAlbumId = null;
 
@@ -1014,7 +961,7 @@
                 const i = document.createElement('i');
                 i.className = cls;
                 return i;
-            };
+            }
 
             const prevBtn = document.createElement('button');
             prevBtn.disabled = currentPage <= 1;
@@ -1090,7 +1037,6 @@
                 const data = await response.json();
 
                 if (currentFilter === 'all') {
-                    // Merge banned URLs into the "All Types" view
                     try {
                         const banRes = await fetch('/api/banned-urls?page=1&per_page=200');
                         const banData = await banRes.json();
@@ -1142,7 +1088,6 @@
             } catch (_) {}
         }
 
-
         function formatTimestamp(timestamp) {
             const date = new Date(timestamp * 1000);
             const now = new Date();
@@ -1158,7 +1103,6 @@
 
             return date.toLocaleString();
         }
-
 
         function getLogTypeInfo(type) {
             const types = {
@@ -1176,7 +1120,6 @@
             };
             return types[type] || { name: type, icon: 'fa-info-circle' };
         }
-
 
         function renderLogEntry(log) {
             if (log.type === 'track_failure') {
@@ -1373,7 +1316,6 @@
                 + '</div>';
         }
 
-
         function filterLogs() {
             currentFilter = document.getElementById('filterType').value;
             logsCurrentPage = 1;
@@ -1422,7 +1364,6 @@
             );
         }
 
-
         async function unbanUrl(banId, logElementId) {
             try {
                 var resp = await fetch('/api/banned-urls/' + banId, {
@@ -1444,7 +1385,6 @@
                 alert('Failed to unban URL');
             }
         }
-
 
         function toggleCandidates(logId) {
             var container = document.getElementById('candidates-' + logId);
@@ -1480,7 +1420,6 @@
             }
         }
 
-
         async function clearAllLogs() {
             if (!confirm('Are you sure you want to clear all logs? This action cannot be undone.')) return;
 
@@ -1500,7 +1439,6 @@
             }
         }
 
-
         const style = document.createElement('style');
         style.textContent = `
             @keyframes slideOut {
@@ -1512,8 +1450,6 @@
         `;
         document.head.appendChild(style);
 
-
-        /* Load failed album context before rendering logs so the retry button appears on first render */
         (async () => {
             try {
                 const res = await fetch('/api/download/failed');
@@ -1547,7 +1483,6 @@
         setInterval(updateQueueBadge, 5000);
 
         setInterval(fetchLogs, 30000);
-
 
     </script>
 </body>

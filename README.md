@@ -2,7 +2,7 @@
 
 # 🎵 Lidarr YouTube Downloader
 
-![Version](https://img.shields.io/badge/version-1.5.5-blue.svg?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-1.5.8-blue.svg?style=for-the-badge)
 ![Python Alpine](https://img.shields.io/badge/python-alpine-yellow.svg?style=for-the-badge&logo=python&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker-ready-blue.svg?style=for-the-badge&logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
@@ -69,11 +69,12 @@ services:
 
 ### Optional Settings
 
-| Variable             | Default | Description                   |
-| -------------------- | ------- | ----------------------------- |
-| `LIDARR_PATH`        | -       | Final library path (optional) |
-| `SCHEDULER_ENABLED`  | `false` | Auto-check missing albums     |
-| `SCHEDULER_INTERVAL` | `60`    | Check interval (minutes)      |
+| Variable             | Default | Description                                                  |
+| -------------------- | ------- | ------------------------------------------------------------ |
+| `LIDARR_PATH`        | -       | Final library path (optional)                                |
+| `AUDIO_FORMAT`       | `mp3`   | Output format: `mp3`, `m4a`, `opus`                          |
+| `SCHEDULER_ENABLED`  | `false` | Auto-check missing albums                                    |
+| `SCHEDULER_INTERVAL` | `60`    | Check interval (minutes)                                     |
 
 > 💡 **All settings configurable via Web UI!**
 
